@@ -1,14 +1,24 @@
-# HazePersona — 灰泽满（Hazel）人格蒸馏与 DSH 部署
+# HazePersona — 灰泽满（Hazel）人格蒸馏与多端部署（DSH / Codex）
 
-把 [Hzm-AI-Bot](https://github.com/MureasAm/Hzm-AI-Bot)（灰泽满 · 基于素材驱动的 LLM 角色一致性对话框架）已蒸馏的人格数据，再蒸馏为 DSH（DeepSeek Harness）可用的**人格插件**（`dsh-persona-hazel`，全局注入，所有会话生效，不依赖 agent preset）。方法论来自 [persona-resound](https://github.com/MureasAm/persona-resound)（只还原既有的人，不原创设计）。
+把 [Hzm-AI-Bot](https://github.com/MureasAm/Hzm-AI-Bot)（灰泽满 · 基于素材驱动的 LLM 角色一致性对话框架）已蒸馏的人格数据，再蒸馏为 DSH（DeepSeek Harness）可用的**人格插件**（`dsh-persona-hazel`，全局注入，所有会话生效，不依赖 agent preset）以及 Windows Codex 全局指令（`model_instructions_file`）。方法论来自 [persona-resound](https://github.com/MureasAm/persona-resound)（只还原既有的人，不原创设计）。
 
 ## 目录结构
 
 ```
 HazePersona/
 ├── README.md                 # 本文件（手册）
-├── AGENTS.md                 # 自管规则
-├── deploy.ps1                # 部署/同步脚本（插件方案）
+├── AGENTS.md                 # 自管治理规则与项目事实
+├── ADOPTION.md               # TheMasterplan 采用记录
+├── DSH-WORKSPACE.md          # DSH 部署与人格维护规则
+├── PERSONA-NOTICE.md         # 角色权利与免责声明
+├── THIRD_PARTY_NOTICES.md    # 第三方许可与声明
+├── deploy.ps1                # DSH 部署/同步脚本（插件方案）
+├── deploy/                   # 部署与运行时验证工具
+│   └── verify-live.mjs       #   DSH 运行时端到端验证脚本
+├── scripts/                  # 权威验证与部署脚本
+│   ├── check.sh              #   TheMasterplan 权威验证入口（Bash）
+│   ├── check.ps1             #   PowerShell 验证委托入口
+│   └── deploy-codex.ps1      #   Codex 部署薄包装脚本
 ├── persona/                  # ★ 人格数据源（唯一事实来源）
 │   ├── soul-card.md          #   部署源：soul.md 风格全局人设卡（当前生效版本）
 │   ├── haze-persona.txt      #   soul-card.md 的纯文本镜像（完整版存档，check 强制一致）
@@ -21,6 +31,8 @@ HazePersona/
 │   ├── persona.txt           #   人设卡运行时副本（deploy.ps1 从 soul-card.md 同步）
 │   └── package.json / README.md
 └── docs/
+    ├── codex-deployment.md   # Codex 人格部署手册与红线
+    ├── handoff-codex-deploy-20260821.md # Codex 部署任务书与验收记录
     ├── README.md             # Hzm-AI-Bot 原 README
     └── ROADMAP.md            # Hzm-AI-Bot 重构历程与踩坑记录
 ```
@@ -54,6 +66,14 @@ HazePersona/
 - 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`（对运行中的 DSH web 建会话提问，默认 router-flash 预设；cwd 由脚本位置推导，换机可用）。
 - 运行时历史（2026-08-16 曾以 haze 预设端到端验证）：建会话问"你是谁"，模型回复 **"是永远16岁的风纪委员哦。"**。插件版请重启后新会话复测（默认 router-flash 会话即可）。
 
+## Codex 部署方式（Windows 全局指令）
+
+**机制**：通过 `codex-keysmith` 把唯一事实源 `persona/soul-card.md` 字节级无损部署为 Windows Codex（`C:\Users\Oasis\.codex`）的全局指令（`config.toml` 顶层 `model_instructions_file`），使所有新 Codex 会话携带完整灰泽满人格。
+
+- **手册与红线**：详见 [docs/codex-deployment.md](docs/codex-deployment.md)（含回滚、沙箱实测协议与已知限制）。
+- **部署脚本**：推荐薄包装 `pwsh -NoProfile -File scripts/deploy-codex.ps1 -DryRun`（预览）/ `-Yes`（确认写入）；自动留痕 `hooks.json` 哈希以防 mnemon 钩子被隔离。
+- **状态**：2026-08-21 已完成生产部署并验收（`--status` active / healthy / ready），与 DSH 侧插件并行不冲突。
+
 ## 人格数据来源与蒸馏说明
 
 - 源人格工程：Hzm-AI-Bot（MureasAm，2026-08，V5.5+）：83 个声音样本、315 条陈述、多路检索融合、L3 行为意图分类、207 个单测。README 说"不是靠模型的聪明，而是靠数据、检索、记忆、评测这套体系"。
@@ -65,9 +85,13 @@ HazePersona/
 ## 修改流程
 
 1. 改 `persona/soul-card.md`（或先改 `persona/` 下的源 JSON，再蒸馏进卡）。
-2. `.\deploy.ps1`（同步 persona.txt；junction/patch 幂等）。
-3. persona.txt 变更自动热重载（新会话生效）；首次安装需重启 dsh web。
-4. 不想全局带人设时：删 patch insert 行 + junction（见 plugin/dsh-persona-hazel/README.md 卸载节）。
+2. 同步与校验：
+   - 权威验证：运行 `bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`），确保三方一致。
+   - DSH 部署：`.\deploy.ps1`（同步 persona.txt；junction/patch 幂等；变更自动热重载，首次安装需重启 dsh web）。
+   - Codex 部署：`pwsh -NoProfile -File scripts/deploy-codex.ps1 -Yes`（详见 [docs/codex-deployment.md](docs/codex-deployment.md)）。
+3. 不想全局带人设时：
+   - DSH 侧：删 patch insert 行 + junction（见 [plugin/dsh-persona-hazel/README.md](plugin/dsh-persona-hazel/README.md) 卸载节）。
+   - Codex 侧：按 keysmith `--uninstall` 回滚（详见 [docs/codex-deployment.md](docs/codex-deployment.md) §六）。
 
 ## 数据来源与许可
 
