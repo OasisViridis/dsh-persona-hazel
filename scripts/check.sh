@@ -19,7 +19,15 @@ else
   fail=1
 fi
 
-# 2) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者必须一致）
+# 2) 端到端验证脚本语法（DSH 0.2.x RPC 客户端，只用 node 内置模块）
+if node --check deploy/verify-live.mjs; then
+  echo "ok: verify-live syntax"
+else
+  echo "FAIL: verify-live syntax"
+  fail=1
+fi
+
+# 3) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者必须一致）
 if cmp -s persona/soul-card.md plugin/dsh-persona-hazel/persona.txt \
   && cmp -s persona/soul-card.md persona/haze-persona.txt; then
   echo "ok: persona.txt and haze-persona.txt in sync with soul-card.md"
@@ -28,7 +36,7 @@ else
   fail=1
 fi
 
-# 3) 人格锚点
+# 4) 人格锚点
 if grep -q "永远16岁的风纪委员" persona/soul-card.md; then
   echo "ok: persona anchors present"
 else

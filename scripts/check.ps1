@@ -1,4 +1,5 @@
-﻿# TheMasterplan 权威验证入口（PowerShell 委托）— HazePersona
+﻿# 本文件保存为 UTF-8 BOM：Windows PowerShell 5.1 按 ANSI 读脚本，无 BOM 时中文锚点会乱码。
+# TheMasterplan 权威验证入口（PowerShell 委托）— HazePersona
 # 委托同一权威命令语义，不维护第二套验证规则。
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
@@ -12,7 +13,11 @@ try {
   node --check 'plugin\dsh-persona-hazel\index.js'
   Write-Output 'ok: plugin syntax'
 
-  # 2) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者一致）
+  # 2) 端到端验证脚本语法（DSH 0.2.x RPC 客户端，只用 node 内置模块）
+  node --check 'deploy\verify-live.mjs'
+  Write-Output 'ok: verify-live syntax'
+
+  # 3) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者一致）
   $card = (Get-FileHash 'persona\soul-card.md' -Algorithm SHA256).Hash
   $plugin = (Get-FileHash 'plugin\dsh-persona-hazel\persona.txt' -Algorithm SHA256).Hash
   $archive = (Get-FileHash 'persona\haze-persona.txt' -Algorithm SHA256).Hash

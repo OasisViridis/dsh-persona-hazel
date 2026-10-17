@@ -12,7 +12,7 @@ HazePersona/
 ├── DSH-WORKSPACE.md          # DSH 部署与人格维护规则
 ├── PERSONA-NOTICE.md         # 角色权利与免责声明
 ├── THIRD_PARTY_NOTICES.md    # 第三方许可与声明
-├── deploy.ps1                # DSH 部署/同步脚本（插件方案）
+├── deploy.ps1                # DSH 部署/同步脚本（桌面端 desktop profile 优先，web 兼容）
 ├── deploy/                   # 部署与运行时验证工具
 │   └── verify-live.mjs       #   DSH 运行时端到端验证脚本
 ├── scripts/                  # 权威验证与部署脚本
@@ -41,19 +41,24 @@ HazePersona/
 
 ## DSH 部署方式（dsh-persona-hazel 插件全局注入）
 
-**机制**：web profile 的 `dsh-persona-hazel` 插件（`cordis.patch.yml` insert 行挂载，node_modules junction link 开发模式）把 `persona.txt` 注册为系统提示词区段 **`hazel:soul`**（全局 prompt 层，order 0）。
+**机制**：DSH profile（桌面端为 `~/.dsh/profiles/desktop`，旧版网页端为 `profiles/web`）里的 `dsh-persona-hazel` 插件把 `persona.txt` 注册为系统提示词区段 **`hazel:soul`**（全局 prompt 层，order 0）。profile 侧由 `deploy.ps1` 幂等维护三处接线：`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
 
-**为什么不用 dsh-soul-md 的 `soul:persona`**：当前默认预设 router-flash 的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**。
+**桌面端是默认目标**：DSH 桌面端用 Electron 独占管理 `profiles/desktop`——`dsh plugin --profile desktop ...` 会直接拒绝（`profile "desktop" is managed exclusively by the Electron application`），所以本地开发插件走 profile 文件接线；它是普通插件（非 bundle），只靠 insert 行加载，**不要**同时写进 `dsh.profile.bundles`。
 
-**状态**：插件已装入 web profile，`persona.txt` 已同步 ✅（2026-08-16）
+**为什么不用 dsh-soul-md 的 `soul:persona`**：router-flash 预装的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**（桌面端默认预设是 `standard`，同样适用）。
+
+**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2` 实测新会话生效）
 
 ### 部署/更新
 
 ```powershell
-.\deploy.ps1        # ①同步 persona.txt ②建 junction ③幂等写入 patch insert 行
+.\deploy.ps1                 # 自动探测 profile（桌面端优先）：①同步 persona.txt ②link 依赖 ③node_modules 链接 ④patch insert 行
+.\deploy.ps1 -Profile web    # 显式指定旧版 web profile
+.\deploy.ps1 -DryRun         # 只打印计划，不写文件
+.\deploy.ps1 -Verify         # 只校验接线，缺一项退出码 1
 ```
 
-- **首次安装**（新插件）：需**重启 dsh web**（桌面端：杀 dsh web 进程 → 弹窗点"重新启动"）。
+- **首次安装**（新插件）：需**完整重启 DSH**（桌面端：托盘退出后重新打开；网页端：杀 dsh web 进程 → 弹窗点"重新启动"）。
 - **改人格**：改 `persona\soul-card.md` → `.\deploy.ps1` → persona.txt 变更自动热重载（fs.watch，下一次组装生效），无需重启。
 
 ### 使用
@@ -62,9 +67,12 @@ HazePersona/
 
 ### 验证
 
-- 静态：`persona.txt` 关键锚点齐备（"永远16岁的风纪委员"、"绿冻永远是灰泽满的第二选择"等）；patch 行 + junction + link 条目三处就位。
-- 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`（对运行中的 DSH web 建会话提问，默认 router-flash 预设；cwd 由脚本位置推导，换机可用）。
-- 运行时历史（2026-08-16 曾以 haze 预设端到端验证）：建会话问"你是谁"，模型回复 **"是永远16岁的风纪委员哦。"**。插件版请重启后新会话复测（默认 router-flash 会话即可）。
+- 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、link 依赖、node_modules 链接、patch 行四项）。
+- 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`）。
+- 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`
+  - 默认对 `$DSH_WEB_URL` 验证（桌面端 `http://127.0.0.1:19387`），第二个参数才是指定预设；省略时用宿主默认预设（桌面端 `standard`），不再硬编码 `router-flash`。
+  - DSH 0.2.x 的 `/api` 需要认证：脚本用 `$DSH_HOME\.credentials.yaml` 里 `client-connection/browser-session` 的签名密钥在本地签发会话 cookie（只读、不出本机），走 `session/create → session/prompt → session/list → session/page` 取回复。
+  - 回复命中"风纪委员/灰泽满/绿冻"等锚点判 PASS；2026-10-18 桌面端实测回复 **"灰泽满呀，永远16岁的风纪委员哦。"**。
 
 ## Codex 部署方式（Windows 全局指令）
 
@@ -87,10 +95,11 @@ HazePersona/
 1. 改 `persona/soul-card.md`（或先改 `persona/` 下的源 JSON，再蒸馏进卡）。
 2. 同步与校验：
    - 权威验证：运行 `bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`），确保三方一致。
-   - DSH 部署：`.\deploy.ps1`（同步 persona.txt；junction/patch 幂等；变更自动热重载，首次安装需重启 dsh web）。
+   - DSH 部署：`.\deploy.ps1`（桌面端 desktop profile 优先，web 兼容；link 依赖/node_modules 链接/patch 行幂等；变更自动热重载，首次安装需完整重启 DSH）。
+   - 部署自检：`.\deploy.ps1 -Verify`；端到端复测：`node deploy\verify-live.mjs`。
    - Codex 部署：`pwsh -NoProfile -File scripts/deploy-codex.ps1 -Yes`（详见 [docs/codex-deployment.md](docs/codex-deployment.md)）。
 3. 不想全局带人设时：
-   - DSH 侧：删 patch insert 行 + junction（见 [plugin/dsh-persona-hazel/README.md](plugin/dsh-persona-hazel/README.md) 卸载节）。
+   - DSH 侧：删 patch insert 行 + node_modules 链接 + package.json link 条目（见 [plugin/dsh-persona-hazel/README.md](plugin/dsh-persona-hazel/README.md) 卸载节）。
    - Codex 侧：按 keysmith `--uninstall` 回滚（详见 [docs/codex-deployment.md](docs/codex-deployment.md) §六）。
 
 ## 数据来源与许可

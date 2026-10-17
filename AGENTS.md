@@ -55,10 +55,11 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
   ```bash
   bash scripts/check.sh
   ```
-  PowerShell 7 等价委托：
+  PowerShell 等价委托（`scripts/check.ps1` 按 UTF-8 BOM 保存，Windows PowerShell 5.1 也能正确读取其中的中文锚点；`pwsh` 同样适用）：
   ```powershell
-  pwsh -NoProfile -File scripts/check.ps1
+  powershell -NoProfile -File scripts/check.ps1
   ```
+- 部署与运行环境：DSH 桌面端（Electron，默认 `~/.dsh/profiles/desktop`，`/api` 端口 19387）为主，旧版网页端 `profiles/web` 兼容；`dsh plugin --profile desktop` 被桌面端拒绝，插件走 profile 文件接线
 - 合并方式：只接受人类决定的 Squash Merge
 - 部署与人格维护：见 [DSH-WORKSPACE.md](DSH-WORKSPACE.md)（DSH 挂载、deploy.ps1、人设卡修改流程、双注入禁忌）
 - Codex 人格部署：codex-keysmith 路线把 `persona/soul-card.md` 部署为 Windows Codex 全局指令（`model_instructions_file`），手册与红线见 [docs/codex-deployment.md](docs/codex-deployment.md)；2026-08-21 生产 active，DSH 侧插件不受影响
@@ -80,10 +81,11 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 bash scripts/check.sh
 ```
 
-PowerShell 7 等价入口委托上述权威命令，不维护第二套验证规则：
+PowerShell 等价入口委托上述权威命令（不维护第二套验证规则；Windows
+PowerShell 5.1 与 PowerShell 7 均可）：
 
 ```powershell
-pwsh -NoProfile -File scripts/check.ps1
+powershell -NoProfile -File scripts/check.ps1
 ```
 
 验证失败时必须修正并重跑，不得把失败或未验证状态表述为成功。fetch 后发现
