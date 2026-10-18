@@ -18,6 +18,8 @@ HazePersona/
 ├── scripts/                  # 权威验证与部署脚本
 │   ├── check.sh              #   TheMasterplan 权威验证入口（Bash）
 │   ├── check.ps1             #   PowerShell 验证委托入口
+│   ├── build-recall-data.mjs #   人格召回数据构建（persona/ → recall-data.json）
+│   ├── persona-eval.mjs      #   17 场景人格评测（12 人格 + 5 世界事实，DSH 运行时）
 │   └── deploy-codex.ps1      #   Codex 部署薄包装脚本
 ├── persona/                  # ★ 人格数据源（唯一事实来源）
 │   ├── soul-card.md          #   部署源：soul.md 风格全局人设卡（当前生效版本）
@@ -25,10 +27,15 @@ HazePersona/
 │   ├── core/                 #   源数据：system_prompt.txt(V2草案) / traits / styles
 │   ├── behavior/             #   behaviors.json（8 条行为模式）
 │   ├── speech/               #   phrases.json（11 组措辞指纹）/ voice_samples.json（83 个声音样本）
+│   ├── recall/               #   scenes.json（消息情境 → 样本/措辞/行为/名词的召回场景表）
 │   └── world/                #   terms / core_stories / legendary / preferences / statement_final(315条)
 ├── plugin/dsh-persona-hazel/ # 人格注入插件（link 装入 DSH profile，桌面端 desktop 为默认）
-│   ├── index.js              #   注册 hazel:soul 区段（全局 prompt 层 + 文件热重载）
+│   ├── index.js              #   Config schema + 插件入口
+│   ├── plugin-core.mjs       #   hazel:soul 区段 + hazel:recall 动态上下文 + 热重载
+│   ├── recall.mjs            #   纯召回逻辑（匹配/预算/时间，可单测）
+│   ├── recall-data.json      #   构建产物：scenes + 样本 + 措辞 + 行为 + 名词
 │   ├── persona.txt           #   人设卡运行时副本（deploy.ps1 从 soul-card.md 同步）
+│   ├── test/recall.test.mjs  #   node --test 召回单测
 │   └── package.json / README.md
 └── docs/
     ├── codex-deployment.md   # Codex 人格部署手册与红线
@@ -41,26 +48,32 @@ HazePersona/
 
 ## DSH 部署方式（dsh-persona-hazel 插件全局注入）
 
-**机制**：DSH profile（桌面端为 `~/.dsh/profiles/desktop`，旧版网页端为 `profiles/web`）里的 `dsh-persona-hazel` 插件把 `persona.txt` 注册为系统提示词区段 **`hazel:soul`**（全局 prompt 层，order 0）。profile 侧由 `deploy.ps1` 幂等维护三处接线：`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
+**机制**：DSH profile（桌面端为 `~/.dsh/profiles/desktop`，旧版网页端为 `profiles/web`）里的 `dsh-persona-hazel` 插件做两层注入：
+
+1. **`hazel:soul`**：把 `persona.txt` 注册为系统提示词区段（全局 prompt 层，order 0）；区段名避开 `/persona/i` 过滤。
+2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 1 个情境的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以 user 角色运行时快照承载；快照变更时追加并标注 supersedes，旧快照留在历史（由 DSH 压缩处理）。
+
+profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.json` 重建、`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
 
 **桌面端是默认目标**：DSH 桌面端用 Electron 独占管理 `profiles/desktop`——`dsh plugin --profile desktop ...` 会直接拒绝（`profile "desktop" is managed exclusively by the Electron application`），所以本地开发插件走 profile 文件接线；它是普通插件（非 bundle），只靠 insert 行加载，**不要**同时写进 `dsh.profile.bundles`。
 
 **为什么不用 dsh-soul-md 的 `soul:persona`**：router-flash 预装的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**（桌面端默认预设是 `standard`，同样适用）。
 
-**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2` 实测新会话生效）
+**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2`）。2026-10-18 10:54 重启后实测：**17/17 会话收到 `hazel:recall` 快照**（时间 + 人格召回），17 场景人格评测通过（12 人格 + 5 世界事实；其中 1 条首轮为中文数字规则误报，修正后复测通过）。
 
 ### 部署/更新
 
 ```powershell
-.\deploy.ps1                 # 自动探测 profile（桌面端优先）：①同步 persona.txt ②link 依赖 ③node_modules 链接 ④patch insert 行
+.\deploy.ps1                 # 自动探测 profile（桌面端优先）：①同步 persona.txt ②重建 recall-data.json ③link 依赖 ④node_modules 链接 ⑤patch insert 行
 .\deploy.ps1 -Profile web    # 显式指定旧版 web profile
 .\deploy.ps1 -DryRun         # 只打印计划，不写文件
-.\deploy.ps1 -Verify         # 只校验接线，缺一项退出码 1
-.\deploy.ps1 -DshHome <dir>  # 覆盖 Harness home（默认 $env:DSH_HOME，其次 ~/.dsh）
+ .\deploy.ps1 -Verify         # 只校验接线 + recall 数据是否最新，缺一项退出码 1
+ .\deploy.ps1 -DshHome <dir>  # 覆盖 Harness home（默认 $env:DSH_HOME，其次 ~/.dsh）
 ```
 
-- **首次安装**（新插件）：需**完整重启 DSH**（桌面端：托盘退出后重新打开；网页端：杀 dsh web 进程 → 弹窗点"重新启动"）。
-- **改人格**：改 `persona\soul-card.md` → `.\deploy.ps1` → persona.txt 变更自动热重载（fs.watch，下一次组装生效），无需重启。
+- **首次安装/改插件代码**：需**完整重启 DSH**（桌面端：托盘退出后重新打开；网页端：杀 dsh web 进程 → 弹窗点"重新启动"）。
+- **改人格卡**：改 `persona\soul-card.md` → `.\deploy.ps1` → persona.txt 变更自动热重载（fs.watch，下一次组装生效），无需重启。
+- **改召回数据**：改 `persona\recall\scenes.json` 或 `persona\speech|behavior|world` 下的源数据 → `.\deploy.ps1`（会重建 recall-data.json）→ 热重载，无需重启。手工重建：`node scripts\build-recall-data.mjs`。
 
 ### 使用
 
@@ -68,8 +81,9 @@ HazePersona/
 
 ### 验证
 
-- 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、link 依赖、node_modules 链接、patch 行四项）。
-- 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`；PowerShell 入口只转发同一脚本，需要 Git for Windows 带的 bash）。
+- 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、recall-data 最新、link 依赖、node_modules 链接、patch 行五项）。
+- 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`；PowerShell 入口只转发同一脚本，需要 Git for Windows 带的 bash），含插件语法、recall 数据同步、召回单测、人设卡一致性。
+- 人格评测：`node scripts\persona-eval.mjs`（17 个场景（12 人格：身份/被夸/被戳穿/失约/越界/孤独/时间/家乡/梗/关心/干活/晚安 + 5 世界事实：三好学生/222名/乌色月/女同学/家人）；需要 DSH 在 19387 运行）。重启插件后加 `--require-context` 可验证每个会话都收到 `hazel:recall` 快照。
 - 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`
   - 默认对 `$DSH_WEB_URL` 验证（桌面端 `http://127.0.0.1:19387`），第二个参数才是指定预设；省略时用宿主默认预设（桌面端 `standard`），不再硬编码 `router-flash`。
   - DSH 0.2.x 的 `/api` 需要认证：脚本用 `$DSH_HOME\.credentials.yaml` 里 `client-connection/browser-session` 的签名密钥在本地签发会话 cookie（只读、不出本机），走 `session/create → session/prompt → session/list → session/page` 取回复。
