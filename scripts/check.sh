@@ -31,17 +31,19 @@ else
 fi
 
 # 3) 召回数据与 persona/ 源数据同步（构建产物不得过期）
-if node scripts/build-recall-data.mjs --check >/dev/null; then
+if output=$(node scripts/build-recall-data.mjs --check 2>&1); then
   echo "ok: recall-data.json in sync"
 else
+  printf '%s\n' "$output"
   echo "FAIL: recall-data.json is out of date (run node scripts/build-recall-data.mjs)"
   fail=1
 fi
 
 # 4) 召回逻辑单测
-if node --test plugin/dsh-persona-hazel/test/recall.test.mjs plugin/dsh-persona-hazel/test/plugin.test.mjs >/dev/null; then
+if output=$(node --test plugin/dsh-persona-hazel/test/recall.test.mjs plugin/dsh-persona-hazel/test/plugin.test.mjs 2>&1); then
   echo "ok: recall unit tests"
 else
+  printf '%s\n' "$output"
   echo "FAIL: recall unit tests"
   fail=1
 fi

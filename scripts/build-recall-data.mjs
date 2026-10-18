@@ -198,6 +198,9 @@ function main() {
   };
 
   const coverage = samples.size === 0 ? 0 : referenced.size / samples.size;
+  if (referenced.size !== samples.size) {
+    fail(`voice sample coverage ${referenced.size}/${samples.size}: every sample must be referenced by at least one scene`);
+  }
   const text = `${JSON.stringify(data, null, 2)}\n`;
 
   console.log(`scenes            : ${normalized.length}`);

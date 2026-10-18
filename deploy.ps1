@@ -91,7 +91,7 @@ function Sync-RecallData {
   $builder = Join-Path $root 'scripts\build-recall-data.mjs'
   if (-not (Test-Path -LiteralPath $builder)) { return 'recall-data build script MISSING' }
   $node = Get-Command node -ErrorAction SilentlyContinue
-  if (-not $node) { return 'recall-data skipped (node not found; run scripts/build-recall-data.mjs manually)' }
+  if (-not $node) { return 'recall-data FAILED (node not found; run scripts/build-recall-data.mjs manually)' }
   $mode = if ($Verify) { '--check' } elseif ($DryRun) { '--dry-run' } else { '' }
   $output = & $node.Source $builder $mode 2>&1
   if ($LASTEXITCODE -ne 0) {

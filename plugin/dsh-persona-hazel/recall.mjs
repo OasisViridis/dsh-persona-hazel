@@ -130,7 +130,7 @@ export function renderRecall(message, data, options = {}) {
     }
     const behavior = scene.behavior ? data.behaviors?.[scene.behavior] : null;
     if (behavior) {
-      lines.push(`反应方向：${clip(behavior.name, 30)}`);
+      lines.push(`反应方向：${clip(behavior.name, 20)}——${clipSentences(behavior.response, 70)}`);
     }
     for (const keyword of (scene.terms ?? []).slice(0, 3)) {
       const term = data.terms?.[keyword];
@@ -149,8 +149,8 @@ export function renderRecall(message, data, options = {}) {
   return kept.length === 0 ? '' : kept.join('\n');
 }
 
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const SEASONS_SOUTH = ['夏季', '夏季', '秋季', '秋季', '秋季', '冬季', '冬季', '冬季', '春季', '春季', '春季', '夏季'];
+const SEASONS_NORTH = ['冬季', '冬季', '春季', '春季', '春季', '夏季', '夏季', '夏季', '秋季', '秋季', '秋季', '冬季'];
 
 function dayPeriod(hour) {
   if (hour >= 0 && hour <= 4) return '凌晨';
@@ -200,9 +200,9 @@ export function renderTime(now = new Date(), timeZone = 'Australia/Melbourne', o
   const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
   const month = Number(parts.month);
   const hour = Number(parts.hour);
-  const season = southern ? `南半球${SEASONS_SOUTH[Math.max(0, Math.min(11, month - 1))]}` : `${SEASONS_SOUTH[Math.max(0, Math.min(11, month - 1))]}`;
-  const weekday = WEEKDAYS[['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(String(parts.weekday).slice(0, 3))] ?? parts.weekday;
-  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${weekday} ${parts.hour}:${parts.minute}，${dayPeriod(hour)}，${season}。`;
+  const seasonIndex = Math.max(0, Math.min(11, month - 1));
+  const season = `${southern ? '南半球' : '北半球'}${(southern ? SEASONS_SOUTH : SEASONS_NORTH)[seasonIndex]}`;
+  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${parts.hour}:${parts.minute}，${dayPeriod(hour)}，${season}。`;
 }
 
 /** 组装要写进 systemPrompt.context 的完整文本（时间 + 召回）。 */

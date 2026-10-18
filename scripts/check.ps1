@@ -9,15 +9,21 @@ try {
     throw 'not a repository root'
   }
 
+  function Check-NodeFile([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { throw "missing file: $path" }
+    node --check $path
+    if ($LASTEXITCODE -ne 0) { throw "syntax check failed: $path" }
+  }
+
   # 1) 插件语法（index.js 是 DSH 插件入口；recall.mjs 是纯召回逻辑）
-  node --check 'plugin\dsh-persona-hazel\index.js'
-  node --check 'plugin\dsh-persona-hazel\recall.mjs'
+  Check-NodeFile 'plugin\dsh-persona-hazel\index.js'
+  Check-NodeFile 'plugin\dsh-persona-hazel\recall.mjs'
   Write-Output 'ok: plugin syntax'
 
   # 2) 脚本语法（DSH 端到端验证、召回数据构建、人格评测）
-  node --check 'deploy\verify-live.mjs'
-  node --check 'scripts\build-recall-data.mjs'
-  if (Test-Path 'scripts\persona-eval.mjs') { node --check 'scripts\persona-eval.mjs' }
+  Check-NodeFile 'deploy\verify-live.mjs'
+  Check-NodeFile 'scripts\build-recall-data.mjs'
+  if (Test-Path 'scripts\persona-eval.mjs') { Check-NodeFile 'scripts\persona-eval.mjs' }
   Write-Output 'ok: script syntax'
 
   # 3) 召回数据与 persona/ 源数据同步（构建产物不得过期）

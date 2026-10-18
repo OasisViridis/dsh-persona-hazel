@@ -160,16 +160,19 @@ async function ask(sessionId, prompt) {
   return { reply: '', context: [] };
 }
 
-/** 从会话记录里找出插件注入的运行时上下文（时间/召回）。 */
+/** 从会话记录里找出插件 `hazel:recall` 区段注入的运行时上下文（时间/召回）。 */
 function contextTexts(records) {
   const texts = [];
   for (const record of records ?? []) {
     const event = record.event ?? record;
     if (event.type !== 'user/message') continue;
     const message = event.data?.message ?? event.data ?? {};
-    const content = Array.isArray(message.content) ? message.content : [];
-    const joined = content.filter((block) => block.type === 'text').map((block) => block.text).join('\n');
-    if (/灰泽满所在地|记忆召回/u.test(joined)) texts.push(joined);
+    const source = message.source ?? {};
+    if (source.kind !== 'runtime-context') continue;
+    const section = (source.sections ?? []).find(
+      (entry) => entry?.name === 'hazel:recall' && typeof entry.text === 'string',
+    );
+    if (section && /灰泽满所在地|记忆召回/u.test(section.text)) texts.push(section.text);
   }
   return texts;
 }

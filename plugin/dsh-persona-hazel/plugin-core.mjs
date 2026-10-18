@@ -157,9 +157,6 @@ export function apply(ctx, config) {
               budget: clampBudget(config.recallBudgetChars),
               southernHemisphere: config.southernHemisphere,
             });
-            if (process.env.DSH_DEBUG_PERSONA === "1" && text) {
-              console.error(`[persona-hazel] context ${text.length} chars`);
-            }
             return text;
           },
         }),

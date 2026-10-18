@@ -19,7 +19,7 @@ HazePersona/
 │   ├── check.sh              #   TheMasterplan 权威验证入口（Bash）
 │   ├── check.ps1             #   PowerShell 验证委托入口
 │   ├── build-recall-data.mjs #   人格召回数据构建（persona/ → recall-data.json）
-│   ├── persona-eval.mjs      #   12 场景人格一致性评测（DSH 运行时）
+│   ├── persona-eval.mjs      #   17 场景人格评测（12 人格 + 5 世界事实，DSH 运行时）
 │   └── deploy-codex.ps1      #   Codex 部署薄包装脚本
 ├── persona/                  # ★ 人格数据源（唯一事实来源）
 │   ├── soul-card.md          #   部署源：soul.md 风格全局人设卡（当前生效版本）

@@ -96,6 +96,7 @@ node deploy\verify-live.mjs                     # 端到端冒烟（身份锚点
 - **不做输出后处理**：DSH 没有响应改写 seam，上游 bot 的 `clean_reply`（括号/省略号/防复读）只能在提示词与素材层解决，不要在本插件里加「事后清洗」。
 - **不注入 legendary 原话**：固定梗原话容易诱发复读，召回只给情境样本/措辞/行为提示。
 - `recall-data.json` 是构建产物，**不要手改**；改 `persona/` 或 `scenes.json` 后重跑构建脚本。
+- `persona-eval.mjs` 每个场景新建一个 DSH 会话，不会自动删除；跑多次会在会话列表里留下测试会话（只影响列表，不影响插件）。
 
 ## 卸载
 

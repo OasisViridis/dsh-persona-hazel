@@ -97,6 +97,15 @@ test('非法时区不抛错（回落到系统时区）', () => {
   assert.doesNotThrow(() => renderTime(new Date(), 'Not/AZone'));
 });
 
+test('southernHemisphere=false 时使用北半球季节', () => {
+  const january = new Date('2026-01-15T00:00:00Z');
+  assert.match(renderTime(january, 'Australia/Melbourne'), /南半球夏季/);
+  assert.match(renderTime(january, 'Asia/Shanghai', { southernHemisphere: false }), /北半球冬季/);
+  const july = new Date('2026-07-15T00:00:00Z');
+  assert.match(renderTime(july, 'Australia/Melbourne'), /南半球冬季/);
+  assert.match(renderTime(july, 'Asia/Shanghai', { southernHemisphere: false }), /北半球夏季/);
+});
+
 test('buildContextText 同时包含时间与召回', () => {
   const text = buildContextText({
     message: '你声音好好听啊',
@@ -150,6 +159,12 @@ test('世界事实/偏好通过 stories/preferences 注入', () => {
   assert.match(renderRecall('小学那个女同学', DATA), /女同学|女仆/);
   assert.equal(sceneOf('你玩宝可梦吗'), 'game');
   assert.match(renderRecall('你玩宝可梦吗', DATA), /宝可梦/);
+});
+
+test('行为召回包含 response 正文，不只是标签', () => {
+  const text = renderRecall('你声音好好听啊', DATA);
+  assert.match(text, /反应方向：被夸时嘴硬否认——/);
+  assert.match(text, /口是心非|自嘲/);
 });
 
 test('数据完整性：场景样本 id 全部存在', () => {
