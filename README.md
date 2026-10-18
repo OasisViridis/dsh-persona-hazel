@@ -40,6 +40,8 @@ HazePersona/
 └── docs/
     ├── codex-deployment.md   # Codex 人格部署手册与红线
     ├── handoff-codex-deploy-20260821.md # Codex 部署任务书与验收记录
+    ├── persona-research-2026-10.md # 人格蒸馏生态调研（素材/转写/TTS/同类项目/评测）
+    ├── persona-slimming-proposal.md # E 方案：人设卡分层瘦身候选核与验收
     ├── README.md             # Hzm-AI-Bot 原 README
     └── ROADMAP.md            # Hzm-AI-Bot 重构历程与踩坑记录
 ```
