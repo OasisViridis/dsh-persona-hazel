@@ -90,5 +90,5 @@ $env:HAZEL_TTS_HOME = '<workspace>'
 
 - 零样本相似度弱于微调；参考音有噪声、口音、语速差异都会影响结果。
 - 8GB 显存只适合推理/小模型；不建议在本机做 GPT-SoVITS 全量微调。
-- 没有 streaming、没有实时变声、没有和 DSH 的语音输出接线；本任务只做离线 WAV 原型。
+- 没有 streaming、没有实时变声、没有和 DSH 的语音输出接线；本任务只做离线 WAV 原型。 训练音频的合规获取与清单见 [voice-training-data.md](voice-training-data.md)。
 - F5-TTS 的参考音示例来自其仓库，音色权利归原录音权利人；这里只把它当“链路验证素材”，不代表灰泽满。
