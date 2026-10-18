@@ -47,7 +47,7 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 
 - 项目名：HazePersona
 - 项目目标：维护灰泽满（Hazel）人格蒸馏数据（`persona/`）与 DSH 全局注入插件 `dsh-persona-hazel`（区段 `hazel:soul`，绕过 router-flash 预设的 persona 区段过滤）；人格数据源自 MureasAm/Hzm-AI-Bot（MIT）
-- 中央 Actions 接口：`OasisSaber/TheMasterplan/.github/workflows/themasterplan-check.yml`，本仓库通过 `uses ... @v4.0.0` + `policy-ref: v4.0.0` 调用（版本一致性规则，见 `.github/workflows/check.yml`）
+- 中央 Actions 接口：`OasisViridis/TheMasterplan/.github/workflows/themasterplan-check.yml`（原 `OasisSaber` 账号已重名为 `OasisViridis`；重命名后旧 owner 的 reusable workflow 引用无法解析，必须用当前 owner），本仓库通过 `uses ... @v4.0.0` + `policy-ref: v4.0.0` 调用（版本一致性规则，见 `.github/workflows/check.yml`）
 - 默认分支：`main`
 - 工具基线：Jujutsu `0.43.0`（已验证版本）；Git `2.34.0` 或更高版本
 - 平台状态：`VERIFIED`（2026-08-17 真实 Windows + Git Bash / PowerShell 7 环境，采用烟雾测试通过）
@@ -55,10 +55,11 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
   ```bash
   bash scripts/check.sh
   ```
-  PowerShell 7 等价委托：
+  PowerShell 等价委托（`scripts/check.ps1` 只找 Git 自带的 bash 转发 `scripts/check.sh`，不复制规则；需要 Git for Windows 的 bash，Windows PowerShell 5.1 与 `pwsh` 均可）：
   ```powershell
-  pwsh -NoProfile -File scripts/check.ps1
+  powershell -NoProfile -File scripts/check.ps1
   ```
+- 部署与运行环境：DSH 桌面端（Electron，默认 `~/.dsh/profiles/desktop`，`/api` 端口 19387）为主，旧版网页端 `profiles/web` 兼容；`dsh plugin --profile desktop` 被桌面端拒绝，插件走 profile 文件接线
 - 合并方式：只接受人类决定的 Squash Merge
 - 部署与人格维护：见 [DSH-WORKSPACE.md](DSH-WORKSPACE.md)（DSH 挂载、deploy.ps1、人设卡修改流程、双注入禁忌）
 - Codex 人格部署：codex-keysmith 路线把 `persona/soul-card.md` 部署为 Windows Codex 全局指令（`model_instructions_file`），手册与红线见 [docs/codex-deployment.md](docs/codex-deployment.md)；2026-08-21 生产 active，DSH 侧插件不受影响
@@ -80,10 +81,11 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 bash scripts/check.sh
 ```
 
-PowerShell 7 等价入口委托上述权威命令，不维护第二套验证规则：
+PowerShell 等价入口只转发上述权威命令（不维护第二套验证规则；转发需要
+Git for Windows 提供的 bash，Windows PowerShell 5.1 与 PowerShell 7 均可）：
 
 ```powershell
-pwsh -NoProfile -File scripts/check.ps1
+powershell -NoProfile -File scripts/check.ps1
 ```
 
 验证失败时必须修正并重跑，不得把失败或未验证状态表述为成功。fetch 后发现

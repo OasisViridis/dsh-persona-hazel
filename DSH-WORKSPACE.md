@@ -12,20 +12,22 @@
 
 ## 硬规则
 
-1. 部署一律走 `.\deploy.ps1`，不要手工复制。
+1. 部署一律走 `.\deploy.ps1`，不要手工复制；默认目标是**桌面端** `~/.dsh/profiles/desktop`（旧版网页端用 `-Profile web`），改完用 `.\deploy.ps1 -Verify` 自检。
 2. 不修改 `persona/` 下任何 Hzm-AI-Bot 原始 JSON 的内容（那是上游证据）。
 3. **部署通道只有 `dsh-persona-hazel` 插件**（区段名 `hazel:soul`）：
    - **不要用 dsh-soul-md / `$DSH_HOME\soul.md` 部署**——router-flash（默认预设）的 `applyPersona` 会过滤名字匹配 `/persona/i` 的区段，`soul:persona` 会被清掉（实测失效）。
    - **不要用 agent preset 方案**（用户已明确拒绝，2026-08-16）。
    - **插件区段名不能含 "persona"**（会被 router-flash 过滤）；不能与 `hazel:soul` 重名。
    - 不要重复部署（另一个同机制插件/文件会造成双注入）。
+   - **桌面端 profile 由 Electron 独占管理**：`dsh plugin --profile desktop ...` 会被拒绝（`managed exclusively by the Electron application`），只能通过 profile 文件接线（`package.json` 的 `link:` 依赖 + `node_modules` 链接 + `cordis.patch.yml` insert 行），且它是普通插件，**不要**写进 `dsh.profile.bundles`。
 4. 蒸馏原则（来自 persona-resound 方法论）：样本 > 规则；提示词不放具体台词（原话下沉到行为/措辞层）；行为 > 标签（写"什么情境怎么反应"）；措辞/括号等从素材层根治，不靠提示词硬约束堆砌。
 5. soul-card.md 的开头声明（"你是灰泽满，但也是用户装进 DSH 的协作者"）是全局注入的必要设计——所有会话都带人设，包括干活会话；不要把它改成纯扮演版。
 
 ## 维护命令
 
-- 部署：`powershell -File .\deploy.ps1`（同步 persona.txt + junction + patch 行幂等）
-- 首次安装：重启 dsh web（桌面端杀 dsh web 进程 → 弹窗点重新启动）；之后 persona.txt 变更热重载
-- 关闭人设：删 patch insert 行 + junction + package.json link 条目（见 plugin/dsh-persona-hazel/README.md）
-- 端到端验证：`node deploy\verify-live.mjs`（对运行中的 DSH web 建会话提问，默认 router-flash 预设）
+- 部署：`.\deploy.ps1`（探测 profile，桌面端优先；同步 persona.txt + 幂等接线；`-DryRun` 只预览，`-Profile web` 处理旧 profile）
+- 部署自检：`.\deploy.ps1 -Verify`（persona.txt 同步/link 依赖/node_modules 链接/patch 行四项，失败退出码 1）
+- 首次安装：完整重启 DSH（桌面端托盘退出后重新打开；网页端杀 dsh web 进程→弹窗重启）；之后 persona.txt 变更热重载
+- 关闭人设：删 patch insert 行 + node_modules 链接 + package.json link 条目（见 plugin/dsh-persona-hazel/README.md）
+- 端到端验证：`node deploy\verify-live.mjs`（默认对 `$DSH_WEB_URL`，桌面端为 `http://127.0.0.1:19387`；用 `$DSH_HOME\.credentials.yaml` 的 browser-session 密钥签发 cookie 过 `/api` 认证；省略预设参数时用宿主默认）
 - 静态一致性：`scripts/check.sh` / `scripts/check.ps1`（TheMasterplan 权威验证入口）
