@@ -51,7 +51,7 @@ HazePersona/
 **机制**：DSH profile（桌面端为 `~/.dsh/profiles/desktop`，旧版网页端为 `profiles/web`）里的 `dsh-persona-hazel` 插件做两层注入：
 
 1. **`hazel:soul`**：把 `persona.txt` 注册为系统提示词区段（全局 prompt 层，order 0）；区段名避开 `/persona/i` 过滤。
-2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 1 个情境的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以一条 user 角色运行时快照承载，替换而非累积。
+2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 1 个情境的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以 user 角色运行时快照承载；快照变更时追加并标注 supersedes，旧快照留在历史（由 DSH 压缩处理）。
 
 profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.json` 重建、`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
 

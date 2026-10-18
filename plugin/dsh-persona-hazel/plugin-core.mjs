@@ -139,7 +139,7 @@ export function apply(ctx, config) {
         }),
       );
     }
-    // 动态运行时上下文：时间 + 按消息召回；文本变化时宿主替换旧快照。
+    // 动态运行时上下文：时间 + 按消息召回；文本变化时追加新快照并标注 supersedes，旧快照留在历史（由宿主压缩处理）。
     if (typeof ctx.systemPrompt.context === "function") {
       disposers.push(
         ctx.systemPrompt.context({

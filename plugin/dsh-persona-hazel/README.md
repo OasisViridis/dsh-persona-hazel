@@ -3,7 +3,7 @@
 灰泽满（Hazel）人格**全局注入插件**：两层注入，所有会话生效，不依赖 agent preset。
 
 1. **`hazel:soul`（静态系统区段）**：把 `persona.txt`（同源于 HazePersona/persona/soul-card.md，由仓库根部 `deploy.ps1` 同步）注册为全局系统提示词区段。区段名刻意**不含 "persona"**：router-flash 的 `applyPersona` 会过滤名字匹配 `/persona/i` 的区段（`soul:persona` 因此失效），`hazel:soul` 绕过该过滤。
-2. **`hazel:recall`（动态运行时上下文）**：按本轮用户消息，从 `recall-data.json` 召回 **1 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地（默认 `Australia/Melbourne`）的本地时间与季节。运行时上下文由宿主以一条 user 角色快照承载，文本变化时替换旧快照，不逐轮累积进历史。
+2. **`hazel:recall`（动态运行时上下文）**：按本轮用户消息，从 `recall-data.json` 召回 **1 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地（默认 `Australia/Melbourne`）的本地时间与季节。运行时上下文由宿主以 user 角色快照承载；文本变化时追加新快照并标注 supersedes，旧快照留在历史（由 DSH 压缩处理）。
 
 ## 数据流
 
