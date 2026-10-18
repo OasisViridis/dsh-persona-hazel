@@ -37,7 +37,9 @@ const CONFIG = {
   debounceMs: 300,
   recall: true,
   recallBudgetChars: 700,
+  recallMaxScenes: 2,
   timeContext: true,
+  timeGranularity: 'hour',
   timeZone: 'Australia/Melbourne',
   southernHemisphere: true,
 };

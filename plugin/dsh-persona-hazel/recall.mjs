@@ -49,21 +49,61 @@ export function scoreScene(message, scene) {
   return score;
 }
 
+/** 默认召回几个场景：一句里常混两个意图，只取一个会让第二个意图裸奔。 */
+export const DEFAULT_MAX_SCENES = 2;
+/** 上限：再多就不是召回，而是整卡注入。 */
+const MAX_SCENES_LIMIT = 3;
 /**
- * 选出与当前消息最相关的一个场景；无命中时用 bigram 兜底。
- * @returns {{scene: object|null, samples: object[], score: number, fallback: boolean}|null}
+ * 第二名的准入线：分数不得低于主场景本身，且至少够到两个信号（两个关键词，
+ * 或一个关键词加一正则，即 ≥4）。
+ *
+ * 实测（28 场景 / 真实消息）放宽到「主场景一半」时，第二名几乎全是词面巧合：
+ * 「你是虚拟主播吗」带出 peer（撞「主播」）、「说好的八点直播呢」带出 caught
+ * （撞「说好的」）、「你声音好好听啊」带出 music（撞「好听」）。收紧后只有真
+ * 双意图能进——「记得吃饭」= care 6 + food 6、「你声音好好听啊，今晚还直播
+ * 吗」= praise 5 + misslive 5。
  */
-export function selectRecall(message, data) {
+const SECOND_SCENE_MIN_SCORE = 4;
+
+/** 把场景数量夹到 1..MAX_SCENES_LIMIT。 */
+function clampSceneCount(value) {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_SCENES;
+  return Math.min(MAX_SCENES_LIMIT, Math.max(1, Math.round(value)));
+}
+
+/**
+ * 选出与当前消息最相关的场景（默认最多两个）；无命中时用 bigram 兜底。
+ *
+ * @returns {{scenes: Array<{scene: object|null, samples: object[], score: number}>, fallback: boolean, score: number}|null}
+ *   `scenes` 按相关度降序；兜底命中时只有一项且 `scene` 为 `null`。
+ */
+export function selectRecall(message, data, options = {}) {
   const text = String(message ?? '').trim();
   if (text.length === 0) return null;
+  const maxScenes = clampSceneCount(options.maxScenes);
   const ranked = (data.scenes ?? [])
     .map((scene) => ({ scene, score: scoreScene(text, scene) }))
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score || (right.scene.priority ?? 0) - (left.scene.priority ?? 0));
   if (ranked.length > 0) {
-    const { scene, score } = ranked[0];
-    const samples = (scene.samples ?? []).map((id) => data.samples?.[id]).filter(Boolean);
-    return { scene, samples, score, fallback: false };
+    const picked = [ranked[0]];
+    if (maxScenes > 1) {
+      const floor = Math.max(SECOND_SCENE_MIN_SCORE, ranked[0].score);
+      // ranked 已按分数降序，遇到第一个不达标的就可以停。
+      for (const entry of ranked.slice(1)) {
+        if (picked.length >= maxScenes || entry.score < floor) break;
+        picked.push(entry);
+      }
+    }
+    return {
+      scenes: picked.map(({ scene, score }) => ({
+        scene,
+        score,
+        samples: (scene.samples ?? []).map((id) => data.samples?.[id]).filter(Boolean),
+      })),
+      fallback: false,
+      score: ranked[0].score,
+    };
   }
 
   let best = null;
@@ -74,7 +114,11 @@ export function selectRecall(message, data) {
   }
   const threshold = data.fallbackThreshold ?? 0.16;
   if (best && best.value >= threshold) {
-    return { scene: null, samples: [best.sample], score: best.value, fallback: true };
+    return {
+      scenes: [{ scene: null, samples: [best.sample], score: best.value }],
+      fallback: true,
+      score: best.value,
+    };
   }
   return null;
 }
@@ -98,55 +142,73 @@ function clipSentences(text, limit) {
   return out || `${value.slice(0, Math.max(1, limit - 1))}…`;
 }
 
-/** 渲染一段 ≤ budget 字符的记忆召回；无命中返回空串。 */
+/**
+ * 一个场景贡献的正文行（不含 HEADER）。
+ * @param {{scene: object|null, samples: object[]}} entry
+ * @param {object} data
+ */
+function sceneLines(entry, data) {
+  const lines = [];
+  const { scene } = entry;
+  if (scene === null) {
+    const sample = entry.samples[0];
+    if (sample) lines.push(`- 她说过类似的话：对方「${clip(sample.user, 60)}」→ 她「${clip(sample.reply, 120)}」`);
+    return lines;
+  }
+  lines.push(`情境：${scene.label}`);
+  for (const sample of entry.samples.slice(0, 2)) {
+    lines.push(`- 对方「${clip(sample.user, 60)}」→ 她「${clip(sample.reply, 120)}」`);
+  }
+  if (scene.note) lines.push(`提示：${clip(scene.note, 90)}`);
+  for (const id of (scene.stories ?? []).slice(0, 2)) {
+    const story = data.stories?.[id];
+    if (story) lines.push(`她记得（${clip(story.category, 12) || '记忆'}）：${clipSentences(story.text, 140)}`);
+  }
+  for (const id of (scene.preferences ?? []).slice(0, 3)) {
+    const pref = data.preferences?.[id];
+    if (pref) lines.push(`偏好（${clip(pref.category, 12) || '喜好'}）：${clipSentences(pref.text, 70)}`);
+  }
+  const phraseGroup = scene.phraseGroup ? data.phrases?.[scene.phraseGroup] : null;
+  if (phraseGroup) {
+    const phrases = (phraseGroup.phrases ?? []).slice(0, 5).join(' / ');
+    lines.push(`她习惯的说法（${clip(phraseGroup.meaning, 30)}）：${clip(phrases, 80)}`);
+  }
+  const behavior = scene.behavior ? data.behaviors?.[scene.behavior] : null;
+  if (behavior) {
+    lines.push(`反应方向：${clip(behavior.name, 20)}——${clipSentences(behavior.response, 70)}`);
+  }
+  for (const keyword of (scene.terms ?? []).slice(0, 3)) {
+    const term = data.terms?.[keyword];
+    if (term) lines.push(`关于「${keyword}」：${clipSentences(term.meaning, 70)}`);
+  }
+  return lines;
+}
+
+/**
+ * 渲染一段 ≤ budget 字符的记忆召回；无命中返回空串。
+ * 场景按相关度顺序填充预算：主场景先占，剩余额度才给第二名。
+ */
 export function renderRecall(message, data, options = {}) {
   const budget = Number.isFinite(options.budget) ? options.budget : (data.budgetChars ?? 700);
-  const selected = selectRecall(message, data);
+  const selected = selectRecall(message, data, { maxScenes: options.maxScenes });
   if (selected === null) return '';
+  // 预算小到连表头都放不下时整段放弃，不要让注入超过约定上限。
+  if (HEADER.length > budget) return '';
 
-  const lines = [HEADER];
-  if (selected.fallback) {
-    const sample = selected.samples[0];
-    lines.push(`- 她说过类似的话：对方「${clip(sample.user, 60)}」→ 她「${clip(sample.reply, 120)}」`);
-  } else {
-    const scene = selected.scene;
-    lines.push(`情境：${scene.label}`);
-    for (const sample of selected.samples.slice(0, 2)) {
-      lines.push(`- 对方「${clip(sample.user, 60)}」→ 她「${clip(sample.reply, 120)}」`);
-    }
-    if (scene.note) lines.push(`提示：${clip(scene.note, 90)}`);
-    for (const id of (scene.stories ?? []).slice(0, 2)) {
-      const story = data.stories?.[id];
-      if (story) lines.push(`她记得（${clip(story.category, 12) || '记忆'}）：${clipSentences(story.text, 140)}`);
-    }
-    for (const id of (scene.preferences ?? []).slice(0, 3)) {
-      const pref = data.preferences?.[id];
-      if (pref) lines.push(`偏好（${clip(pref.category, 12) || '喜好'}）：${clipSentences(pref.text, 70)}`);
-    }
-    const phraseGroup = scene.phraseGroup ? data.phrases?.[scene.phraseGroup] : null;
-    if (phraseGroup) {
-      const phrases = (phraseGroup.phrases ?? []).slice(0, 5).join(' / ');
-      lines.push(`她习惯的说法（${clip(phraseGroup.meaning, 30)}）：${clip(phrases, 80)}`);
-    }
-    const behavior = scene.behavior ? data.behaviors?.[scene.behavior] : null;
-    if (behavior) {
-      lines.push(`反应方向：${clip(behavior.name, 20)}——${clipSentences(behavior.response, 70)}`);
-    }
-    for (const keyword of (scene.terms ?? []).slice(0, 3)) {
-      const term = data.terms?.[keyword];
-      if (term) lines.push(`关于「${keyword}」：${clipSentences(term.meaning, 70)}`);
+  const kept = [HEADER];
+  let used = HEADER.length;
+  for (const entry of selected.scenes) {
+    for (const line of sceneLines(entry, data)) {
+      const cost = line.length + 1;
+      if (used + cost > budget) {
+        // 主场景之外的内容挤不进预算就整体放弃，避免半截场景误导模型。
+        return kept.length === 1 ? '' : kept.join('\n');
+      }
+      kept.push(line);
+      used += cost;
     }
   }
-
-  const kept = [];
-  let used = 0;
-  for (const line of lines) {
-    const cost = line.length + (kept.length === 0 ? 0 : 1);
-    if (used + cost > budget) continue;
-    kept.push(line);
-    used += cost;
-  }
-  return kept.length === 0 ? '' : kept.join('\n');
+  return kept.join('\n');
 }
 
 const SEASONS_SOUTH = ['夏季', '夏季', '秋季', '秋季', '秋季', '冬季', '冬季', '冬季', '春季', '春季', '春季', '夏季'];
@@ -162,14 +224,36 @@ function dayPeriod(hour) {
   return '深夜';
 }
 
+const GRANULARITIES = new Set(['minute', 'hour', 'period']);
+
+/**
+ * 归一化时间粒度。
+ *
+ * 默认 `hour`：宿主只在快照文本变化时才追加新快照，精确到分钟会让每轮都
+ * 产生一条 200–500 字的新快照；降到整点后，同一个小时窗口内文本字节稳定。
+ * `period` 更省（一天 7 段），`minute` 保留旧的精确输出。
+ */
+function normalizeGranularity(value) {
+  return GRANULARITIES.has(value) ? value : 'hour';
+}
+
+/** 按粒度渲染钟点：minute 保留 HH:MM，hour 只到整点，period 只给时段。 */
+function clockText(hourText, minuteText, hour, granularity) {
+  const period = dayPeriod(hour);
+  if (granularity === 'minute') return `${hourText}:${minuteText}，${period}`;
+  if (granularity === 'period') return period;
+  return hour === 0 ? `${period}零点` : `${period} ${hour} 点`;
+}
+
 /**
  * 渲染灰泽满所在地的本地时间/季节。
  * @param {Date} now
  * @param {string} timeZone IANA 时区；非法时回落到系统时区。
- * @param {{southernHemisphere?: boolean}} options
+ * @param {{southernHemisphere?: boolean, granularity?: 'minute'|'hour'|'period'}} options
  */
 export function renderTime(now = new Date(), timeZone = 'Australia/Melbourne', options = {}) {
   const southern = options.southernHemisphere !== false;
+  const granularity = normalizeGranularity(options.granularity);
   let resolvedZone = timeZone;
   let formatter;
   try {
@@ -202,15 +286,26 @@ export function renderTime(now = new Date(), timeZone = 'Australia/Melbourne', o
   const hour = Number(parts.hour);
   const seasonIndex = Math.max(0, Math.min(11, month - 1));
   const season = `${southern ? '南半球' : '北半球'}${(southern ? SEASONS_SOUTH : SEASONS_NORTH)[seasonIndex]}`;
-  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${parts.hour}:${parts.minute}，${dayPeriod(hour)}，${season}。`;
+  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${clockText(parts.hour, parts.minute, hour, granularity)}，${season}。`;
 }
 
 /** 组装要写进 systemPrompt.context 的完整文本（时间 + 召回）。 */
-export function buildContextText({ message, data, now, timeZone, recall = true, timeContext = true, budget, southernHemisphere = true } = {}) {
+export function buildContextText({
+  message,
+  data,
+  now,
+  timeZone,
+  recall = true,
+  timeContext = true,
+  budget,
+  maxScenes,
+  southernHemisphere = true,
+  granularity = 'hour',
+} = {}) {
   const parts = [];
-  if (timeContext) parts.push(renderTime(now, timeZone, { southernHemisphere }));
+  if (timeContext) parts.push(renderTime(now, timeZone, { southernHemisphere, granularity }));
   if (recall && data) {
-    const text = renderRecall(message, data, { budget });
+    const text = renderRecall(message, data, { budget, maxScenes });
     if (text) parts.push(text);
   }
   return parts.join('\n\n');

@@ -15,7 +15,9 @@
  * - debounceMs:        重载防抖毫秒（默认 300）
  * - recall:            启用动态人格召回（默认 true）
  * - recallBudgetChars: 每轮召回文本上限（默认 700，运行时夹在 200..2000）
+ * - recallMaxScenes:   每轮最多召回几个场景（默认 2，运行时夹在 1..3）
  * - timeContext:       注入灰泽满所在地时间（默认 true）
+ * - timeGranularity:   时间粒度 minute / hour / period（默认 hour）
  * - timeZone:          她的 IANA 时区（默认 Australia/Melbourne）
  * - southernHemisphere: 季节按南半球显示（默认 true）
  */
@@ -36,7 +38,9 @@ const Config = z.object({
   debounceMs: z.number().default(300),
   recall: z.boolean().default(true),
   recallBudgetChars: z.number().default(700),
+  recallMaxScenes: z.number().default(2),
   timeContext: z.boolean().default(true),
+  timeGranularity: z.string().default("hour"),
   timeZone: z.string().default("Australia/Melbourne"),
   southernHemisphere: z.boolean().default(true),
 });
