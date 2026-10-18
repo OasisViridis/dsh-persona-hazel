@@ -9,15 +9,28 @@ try {
     throw 'not a repository root'
   }
 
-  # 1) 插件语法
+  # 1) 插件语法（index.js 是 DSH 插件入口；recall.mjs 是纯召回逻辑）
   node --check 'plugin\dsh-persona-hazel\index.js'
+  node --check 'plugin\dsh-persona-hazel\recall.mjs'
   Write-Output 'ok: plugin syntax'
 
-  # 2) 端到端验证脚本语法（DSH 0.2.x RPC 客户端，只用 node 内置模块）
+  # 2) 脚本语法（DSH 端到端验证、召回数据构建、人格评测）
   node --check 'deploy\verify-live.mjs'
-  Write-Output 'ok: verify-live syntax'
+  node --check 'scripts\build-recall-data.mjs'
+  if (Test-Path 'scripts\persona-eval.mjs') { node --check 'scripts\persona-eval.mjs' }
+  Write-Output 'ok: script syntax'
 
-  # 3) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者一致）
+  # 3) 召回数据与 persona/ 源数据同步（构建产物不得过期）
+  node 'scripts\build-recall-data.mjs' --check
+  if ($LASTEXITCODE -ne 0) { throw 'recall-data.json is out of date (run node scripts/build-recall-data.mjs)' }
+  Write-Output 'ok: recall-data.json in sync'
+
+  # 4) 召回逻辑单测
+  node --test 'plugin\dsh-persona-hazel\test\recall.test.mjs' 'plugin\dsh-persona-hazel\test\plugin.test.mjs'
+  if ($LASTEXITCODE -ne 0) { throw 'recall unit tests failed' }
+  Write-Output 'ok: recall unit tests'
+
+  # 5) 人设卡同步一致性（soul-card.md、haze-persona.txt、插件 persona.txt 三者一致）
   $card = (Get-FileHash 'persona\soul-card.md' -Algorithm SHA256).Hash
   $plugin = (Get-FileHash 'plugin\dsh-persona-hazel\persona.txt' -Algorithm SHA256).Hash
   $archive = (Get-FileHash 'persona\haze-persona.txt' -Algorithm SHA256).Hash
@@ -26,7 +39,7 @@ try {
   }
   Write-Output 'ok: persona.txt and haze-persona.txt in sync with soul-card.md'
 
-  # 3) 人格锚点（PS 5.1 必须显式 UTF8，默认按 ANSI 读会乱码）
+  # 6) 人格锚点（PS 5.1 必须显式 UTF8，默认按 ANSI 读会乱码）
   $card = Get-Content 'persona\soul-card.md' -Raw -Encoding UTF8
   if (-not $card.Contains('永远16岁的风纪委员')) { throw 'persona anchors missing' }
   Write-Output 'ok: persona anchors present'

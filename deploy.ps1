@@ -6,9 +6,10 @@
 # ("profile desktop is managed exclusively by the Electron application"), so a
 # local dev plugin is wired through the profile files themselves:
 #   1) sync persona/soul-card.md -> plugin/dsh-persona-hazel/persona.txt (hot reload)
-#   2) ensure package.json  "dsh-persona-hazel": "link:<checkout>/plugin/dsh-persona-hazel"
-#   3) ensure node_modules/dsh-persona-hazel resolves to that plugin directory
-#   4) ensure one `persona-hazel` insert row in cordis.patch.yml
+#   2) build persona/recall + speech/behavior/world -> plugin/dsh-persona-hazel/recall-data.json
+#   3) ensure package.json  "dsh-persona-hazel": "link:<checkout>/plugin/dsh-persona-hazel"
+#   4) ensure node_modules/dsh-persona-hazel resolves to that plugin directory
+#   5) ensure one `persona-hazel` insert row in cordis.patch.yml
 #
 # Usage:
 #   .\deploy.ps1                 # sync + wire the auto-detected profile
@@ -16,7 +17,7 @@
 #   .\deploy.ps1 -DryRun         # print the plan, write nothing
 #   .\deploy.ps1 -Verify         # read-only wiring check; exits 1 on any failure
 #
-# A NEW plugin needs a full DSH restart; afterwards persona.txt edits hot-reload.
+# A NEW plugin or plugin code change needs a full DSH restart; afterwards persona.txt / recall-data.json edits hot-reload.
 param(
   [string]$Profile,
   [string]$DshHome,
@@ -85,7 +86,24 @@ function Sync-PersonaCard {
   return "persona.txt synced ($((Get-Item -LiteralPath $personaTxt).Length) bytes)"
 }
 
-# 2) package.json link dependency
+# 2) persona data -> plugin recall-data.json（人格召回运行时数据，构建产物）
+function Sync-RecallData {
+  $builder = Join-Path $root 'scripts\build-recall-data.mjs'
+  if (-not (Test-Path -LiteralPath $builder)) { return 'recall-data build script MISSING' }
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) { return 'recall-data skipped (node not found; run scripts/build-recall-data.mjs manually)' }
+  $mode = if ($Verify) { '--check' } elseif ($DryRun) { '--dry-run' } else { '' }
+  $output = & $node.Source $builder $mode 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    if ($Verify -and (($output -join "`n") -match 'out of date')) { return 'recall-data OUT OF SYNC (run scripts/build-recall-data.mjs)' }
+    return ('recall-data build FAILED: ' + (($output | Select-Object -Last 3) -join ' '))
+  }
+  if ($Verify) { return 'recall-data up to date' }
+  if ($DryRun) { return 'recall-data generation planned' }
+  return 'recall-data generated'
+}
+
+# 3) package.json link dependency
 function Ensure-ProfileDependency {
   $raw = Get-Utf8Text $packageJson
   if ($raw -match '"dsh-persona-hazel"\s*:') { return 'package.json dependency present' }
@@ -116,7 +134,7 @@ function Ensure-ProfileDependency {
   return "package.json dependency added ($linkSpec)"
 }
 
-# 3) node_modules link
+# 4) node_modules link
 function Ensure-NodeModulesLink {
   if (Test-Path -LiteralPath $linkPath) {
     $target = (Get-Item -LiteralPath $linkPath -Force).Target
@@ -134,7 +152,7 @@ function Ensure-NodeModulesLink {
   return "node_modules junction created -> $pluginDir"
 }
 
-# 4) cordis.patch.yml insert row
+# 5) cordis.patch.yml insert row
 function Ensure-PatchRow {
   $content = Get-Utf8Text $patchFile
   if ($content -match 'dsh-persona-hazel') { return 'cordis.patch.yml insert row present' }
@@ -155,6 +173,7 @@ function Ensure-PatchRow {
 # Planned steps; -Verify only reports, -DryRun only prints.
 $steps = @(
   @{ Name = 'persona.txt'; Run = { Sync-PersonaCard } },
+  @{ Name = 'recall-data'; Run = { Sync-RecallData } },
   @{ Name = 'dependency'; Run = { Ensure-ProfileDependency } },
   @{ Name = 'link'; Run = { Ensure-NodeModulesLink } },
   @{ Name = 'patch'; Run = { Ensure-PatchRow } }
@@ -163,7 +182,7 @@ $steps = @(
 $problems = @()
 foreach ($step in $steps) {
   $result = & $step.Run
-  $isProblem = $result -match 'MISSING|OUT OF SYNC|points elsewhere'
+  $isProblem = $result -match 'MISSING|OUT OF SYNC|FAILED|points elsewhere'
   if ($isProblem) { $problems += $result }
   $tag = if ($DryRun) { '[plan]' } elseif ($isProblem) { '[warn]' } else { '[ ok ]' }
   Write-Host ("{0} {1}: {2}" -f $tag, $step.Name, $result)

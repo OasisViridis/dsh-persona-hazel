@@ -1,7 +1,7 @@
 {
   "name": "dsh-persona-hazel",
-  "version": "0.1.1",
-  "description": "灰泽满（Hazel）人格全局注入插件：注册 hazel:soul 系统提示词区段（区段名刻意不含 persona，绕过 router-flash 预设的 persona 区段过滤），不依赖 agent preset。人格数据蒸馏自 MureasAm/Hzm-AI-Bot，方法论见 persona-resound。",
+  "version": "0.2.0",
+  "description": "灰泽满（Hazel）人格全局注入插件：hazel:soul 静态人设区段 + hazel:recall 动态人格召回/本地时间（区段名刻意不含 persona，绕过 router-flash 预设的 persona 区段过滤），不依赖 agent preset。人格数据蒸馏自 MureasAm/Hzm-AI-Bot，方法论见 persona-resound。",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -10,9 +10,15 @@
   },
   "files": [
     "index.js",
+    "plugin-core.mjs",
+    "recall.mjs",
+    "recall-data.json",
     "persona.txt",
     "README.md"
   ],
+  "scripts": {
+    "test": "node --test test/recall.test.mjs test/plugin.test.mjs"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=20.18"
