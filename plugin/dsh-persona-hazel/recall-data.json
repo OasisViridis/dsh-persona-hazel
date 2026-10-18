@@ -1,7 +1,7 @@
 {
   "_readme": "由 scripts/build-recall-data.mjs 从 persona/（scenes/voice_samples/phrases/behaviors/terms/core_stories/preferences）生成；不要手改，改源数据后重跑脚本。",
   "budgetChars": 700,
-  "fallbackThreshold": 0.16,
+  "fallbackThreshold": 0.25,
   "scenes": [
     {
       "id": "identity",
@@ -315,6 +315,7 @@
         "单口相声",
         "喜欢我",
         "爱不爱",
+        "爱我",
         "我重要"
       ],
       "patterns": [

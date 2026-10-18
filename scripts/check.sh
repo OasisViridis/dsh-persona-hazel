@@ -20,9 +20,10 @@ else
   fail=1
 fi
 
-# 2) 脚本语法（DSH 端到端验证、召回数据构建、人格评测）
+# 2) 脚本语法（DSH 端到端验证、召回数据构建、人格评测、召回质量评测）
 if node --check deploy/verify-live.mjs \
   && node --check scripts/build-recall-data.mjs \
+  && node --check scripts/recall-eval.mjs \
   && { [ ! -f scripts/persona-eval.mjs ] || node --check scripts/persona-eval.mjs; }; then
   echo "ok: script syntax"
 else
@@ -62,6 +63,15 @@ if grep -q "永远16岁的风纪委员" persona/soul-card.md; then
   echo "ok: persona anchors present"
 else
   echo "FAIL: persona anchors missing"
+  fail=1
+fi
+
+# 7) 召回质量回归（确定性标注集 + 离线评测，不连 DSH）
+if output=$(node scripts/recall-eval.mjs --strict 2>&1); then
+  echo "ok: recall quality regression"
+else
+  printf '%s\n' "$output"
+  echo "FAIL: recall quality regression (run node scripts/recall-eval.mjs --verbose)"
   fail=1
 fi
 

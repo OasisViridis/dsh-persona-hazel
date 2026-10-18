@@ -91,9 +91,10 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 ## 验证
 
 ```powershell
-powershell -NoProfile -File scripts/check.ps1   # 权威静态检查（语法 / recall 同步 / 单测 / 人设卡一致性）
+powershell -NoProfile -File scripts/check.ps1   # 权威静态检查（语法 / recall 同步 / 单测 / 人设卡一致性 / 召回质量回归）
+node scripts/recall-eval.mjs                    # 召回质量评测（70 条标注集，离线；--strict 有失败就退出码 1）
 node scripts/persona-eval.mjs                   # 17 场景（12 人格 + 5 世界事实）（需要 DSH 在 19387 运行）
-node scripts/persona-eval.mjs --require-context # 复测用：每个会话都必须收到 hazel:recall 快照（2026-10-18 实测 17/17）
+node scripts/persona-eval.mjs --require-context # 复测用：每个会话都必须收到 hazel:recall 快照（2026-10-19 实测 17/17）
 node deploy\verify-live.mjs                     # 端到端冒烟（身份锚点）
 ```
 

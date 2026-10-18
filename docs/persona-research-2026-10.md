@@ -406,11 +406,12 @@ BBDown/yt-dlp 取音轨 + 弹幕
 | D 数据治理 | ✅ 已接入 | `scripts/check.sh` / `check.ps1`：recall-data 同步、30 个单测、人设卡一致性 |
 | E 人设卡瘦身 | ✅ 已切换 | [persona-slimming-proposal.md](persona-slimming-proposal.md)（4,032 字 / 10,418 字节）；17/17 评测通过（PR #8） |
 | F 声音 | 🟡 本地原型跑通 | F5-TTS 零样本 + 仓库自带参考音；Hazel 本人音色待授权参考音；不进插件默认路径（见 docs/voice-prototype.md） |
-| G 快照去重 + top-2 | ✅ 已实现（2026-10-19） | `recall.mjs` 的 `timeGranularity`（默认 `hour`）+ `selectRecall` 的 top-2（第二名须不弱于主场景且 ≥4 分）；话题连续时快照条数 −50~78%、字数 −51~85%，跳跃话题持平 |
+| G 快照去重 + top-2 | ✅ 已实现（2026-10-19） | `recall.mjs` 的 `timeGranularity`（默认 `hour`）+ `selectRecall` 的 top-2（第二名须不弱于主场景且 ≥4 分）；话题连续时快照条数 −50~78%、字数 −51~85%，跳跃话题持平。端到端已于 2026-10-19 02:5x 重启后复测：**17/17 场景通过、17/17 会话收到快照**，回复里的时间已是「凌晨两点」（整点粒度生效） |
+| H 召回质量回归 | ✅ 已接入（2026-10-19） | `scripts/recall-eval.mjs` + `persona/recall/eval-set.json`（70 条标注集，覆盖 28/28 场景，含 20 条负例）；首跑 98%，修 `fans` 缺「爱我」关键词 + `fallbackThreshold` 0.16→0.25 后 **100%**；已接进 `scripts/check.sh` 第 7 项 |
 
 **运行时验证（2026-10-18 10:54 重启后）**：`node scripts/persona-eval.mjs --require-context` 实测 **17/17 会话**收到含「灰泽满所在地」/「记忆召回」的运行时快照；17 场景评测 16/17，唯一失败为中文数字规则误报（`222` vs `二百二十二`），修正后复测通过。多轮实测（同一会话 5 轮）：5/5 轮都有召回，但快照是 `append` 而非替换，历史里会有 5 条 runtime-context，靠 supersedes 指令与压缩控制。
 
-**G 的状态（2026-10-19）**：代码与单测完成（37 个），静态验证全过；端到端（`persona-eval.mjs` / `verify-live.mjs`）需要完整重启 DSH 才能加载新的 `plugin-core.mjs`，因此留到重启窗口执行，不写成"已通过"。
+**G 的状态（2026-10-19）**：代码、37 个单测、静态验证全过；DSH 于 23:47 重启后补完端到端——`node scripts/persona-eval.mjs --require-context` 实测 **17/17 场景通过、17/17 会话收到快照**，回复里的时间是「凌晨两点」而不是精确分钟，说明整点粒度已生效。
 
 ---
 
