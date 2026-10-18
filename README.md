@@ -59,7 +59,7 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 
 **为什么不用 dsh-soul-md 的 `soul:persona`**：router-flash 预装的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**（桌面端默认预设是 `standard`，同样适用）。
 
-**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2`）。2026-10-18 10:54 重启后实测：**17/17 会话收到 `hazel:recall` 快照**（时间 + 人格召回），17 场景人格评测通过（12 人格 + 5 世界事实；其中 1 条首轮为中文数字规则误报，修正后复测通过）。
+**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2`）。2026-10-18 10:54 重启后实测：**17/17 会话收到 `hazel:recall` 快照**（时间 + 人格召回），17 场景人格评测通过（12 人格 + 5 世界事实；其中 1 条首轮为中文数字规则误报，修正后复测通过）。2026-10-18 18:56 **E 切换**：人设卡 4,032 字 / 10,418 字节（较 5,788 字省 30.3% 字符 / 31.4% 字节），17/17 评测通过；世界/记忆细节由 `hazel:recall` 补全。
 
 ### 部署/更新
 
