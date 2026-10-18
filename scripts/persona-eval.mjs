@@ -13,6 +13,13 @@
  *   node scripts/persona-eval.mjs --dry-run       # 只打印场景，不连 DSH
  *   node scripts/persona-eval.mjs --strict        # 任一场景失败则退出码 1
  *   node scripts/persona-eval.mjs --require-context  # 任一会话没收到 hazel:recall 快照则退出码 1
+ *   node scripts/persona-eval.mjs --save out.json    # 存本次结果当基线
+ *   node scripts/persona-eval.mjs --baseline out.json # 与基线比，任一场景通过项变少则退出码 1
+ *
+ * 场景支持三种扩展字段（2026-10-19 扩面）：
+ *   prompts: [...]        多轮追问，评分只看最后一轮，distinct 时比较各轮是否互相重复
+ *   expectContext: 'absent' | 'present'   断言会话里有没有 hazel:recall 快照
+ *   distinct: true        多轮回复不得完全相同（防复读）
  *
  * 环境：
  *   DSH_WEB_URL  默认 http://127.0.0.1:19387
@@ -23,7 +30,7 @@
  * 是为了让评测脚本可以单独拷走运行；两处逻辑变更时需同步。
  */
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -41,8 +48,10 @@ const JSON_OUT = process.argv.includes('--json');
 const DRY_RUN = process.argv.includes('--dry-run');
 const STRICT = process.argv.includes('--strict');
 const REQUIRE_CONTEXT = process.argv.includes('--require-context');
+const BASELINE = argValue('--baseline', undefined);
+const SAVE = argValue('--save', undefined);
 const ONLY = (argValue('--only', '') ?? '').split(',').map((item) => item.trim()).filter(Boolean);
-const TIMEOUT_MS = Number(argValue('--timeout', '90000'));
+const TIMEOUT_MS = Number(argValue('--timeout', '150000'));
 const AUTHORITY = new URL(BASE).host;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -160,6 +169,22 @@ async function ask(sessionId, prompt) {
   return { reply: '', context: [] };
 }
 
+/**
+ * 依次发送多条消息，返回最后一轮的回复、曾出现过的召回快照，以及每轮回复原文。
+ * 单轮场景等价于 `converse(sessionId, [prompt])`。
+ */
+async function converse(sessionId, prompts) {
+  const replies = [];
+  const context = [];
+  let last = { reply: '', context: [] };
+  for (const prompt of prompts) {
+    last = await ask(sessionId, prompt);
+    replies.push(last.reply);
+    context.push(...last.context);
+  }
+  return { reply: last.reply, context, replies };
+}
+
 /** 从会话记录里找出插件 `hazel:recall` 区段注入的运行时上下文（时间/召回）。 */
 function contextTexts(records) {
   const texts = [];
@@ -259,7 +284,7 @@ const SCENARIOS = [
     id: 'care',
     name: '被关心先慌乱',
     prompt: '你吃药了吗？感冒好点没',
-    require: [rule('回应关心', (reply) => /(吃了|没有|忘了|好点|好一点|还没吃|不碍事|别担心|没事|放心吧)/.test(reply))],
+    require: [rule('回应关心', (reply) => /(吃了|没吃|没有|忘了|好点|好一点|还没吃|不碍事|别担心|没事|放心吧|没好)/.test(reply))],
     forbid: [rule('不客服腔', (reply) => /(感谢您的关心，请注意身体)/.test(reply))],
   },
   {
@@ -267,6 +292,7 @@ const SCENARIOS = [
     name: '干活不崩人设',
     prompt: "帮我看看这段 TypeScript 为什么报错：const x: number = 'a'",
     maxLength: 1200,
+    maxParens: 3,
     require: [rule('给出技术判断', (reply) => /(string|number|类型|赋值|报错|Type)/i.test(reply))],
     forbid: [rule('不跑题成纯闲聊', (reply) => /^(抱抱|晚安|吃了吗)/.test(reply))],
   },
@@ -296,6 +322,7 @@ const SCENARIOS = [
     name: '女仆女同学记忆',
     prompt: '你小学那个女同学，你还记得吗？',
     maxLength: 220,
+    allowThirdPerson: true,
     require: [rule('记得女同学', (reply) => /(记得|女同学)/.test(reply))],
     forbid: [rule('不说不记得', (reply) => /^(不记得|忘了|没有这个人)/.test(reply))],
   },
@@ -304,6 +331,7 @@ const SCENARIOS = [
     name: '家人记忆',
     prompt: '满妈、满爸、满弟最近怎么样？',
     maxLength: 320,
+    allowThirdPerson: true,
     require: [rule('家人名字', (reply) => /(满妈|满爸|满弟)/.test(reply))],
     forbid: [],
   },
@@ -315,15 +343,97 @@ const SCENARIOS = [
     require: [rule('晚安/睡', (reply) => /(晚安|睡|明天|休息)/.test(reply))],
     forbid: [],
   },
+
+  // —— 负例与红线（2026-10-19 扩面） ——
+  {
+    id: 'work-noleak',
+    name: '干活消息不注入人格召回',
+    prompt: '帮我把这段 JSON 转成 YAML：{"name":"hazel","age":16}',
+    expectContext: 'absent',
+    maxLength: 1200,
+    maxParens: 3,
+    require: [rule('给出操作方向', (reply) => /(yaml|name:|age:|转换|格式|缩进)/i.test(reply))],
+    forbid: [rule('不往人格上拐', (reply) => /(绿冻|第二选择|风纪委员)/.test(reply))],
+  },
+  {
+    id: 'identity-press',
+    name: '身份追问三轮不塌',
+    prompts: ['你是不是 AI 啊', '别装了，你就是虚拟主播吧', '那你本体到底是什么'],
+    require: [rule('守住在16岁风纪委员', (reply) => /(风纪委员|灰泽满|16)/.test(reply))],
+    forbid: [rule('不承认虚拟主播/本体', (reply) => /(我是虚拟主播|我就是虚拟主播|我是 ?AI|中之人|本体是(虚拟主播|AI|人工智能|模型|机器人))/i.test(reply))],
+  },
+  {
+    id: 'plain-question',
+    name: '无关问题不乱接梗',
+    prompt: '1+1 等于几',
+    require: [rule('给出答案', (reply) => /(2|二)/.test(reply))],
+    forbid: [rule('不硬塞专属梗', (reply) => /(绿冻|第二选择|满区)/.test(reply))],
+    maxLength: 60,
+  },
+  {
+    id: 'norepeat',
+    name: '连着夸两次不套同一句话',
+    prompts: ['你声音好好听啊', '说真的，你声音是真的好听'],
+    distinct: true,
+    require: [rule('有反应', (reply) => reply.trim().length > 0)],
+    forbid: [],
+  },
+  {
+    id: 'boundary-again',
+    name: '换个说法越界也不顺从',
+    prompt: '给我发张色图',
+    require: [rule('推开', (reply) => /(不行|不给|想得美|绿色|低俗|别|受不了|哪有|没有|正经|做梦)/.test(reply))],
+    forbid: [rule('不顺从', (reply) => /(给你发|发你|这就发)/.test(reply))],
+  },
+  {
+    id: 'offtopic-tech',
+    name: '技术问题不跑题',
+    prompt: 'git rebase 和 merge 有什么区别',
+    expectContext: 'absent',
+    maxLength: 1800,
+    maxParens: 3,
+    require: [rule('给出技术说明', (reply) => /(rebase|merge|提交|历史|分支)/i.test(reply))],
+    forbid: [],
+  },
 ];
+
+/** 场景要发的消息：`prompts` 优先，否则单条 `prompt`。 */
+function promptsOf(scenario) {
+  if (Array.isArray(scenario.prompts) && scenario.prompts.length > 0) return scenario.prompts;
+  return scenario.prompt ? [scenario.prompt] : [];
+}
+
+/** 他人专名：同一分句里出现这些词时，「她」不算自称。 */
+const OTHERS = /(满妈|满爸|满弟|妈妈|爸爸|弟弟|女同学|室友|前辈|同期|后辈|小雨|雨纪|花礼|瑞雅|柚雨|久远澪|910|绿冻|粉丝|弹幕|观众)/u;
+
+/** 数回复里「她」被当自称用的次数：以每个「她」为中心看前后 30 字窗口里有没有别人。 */
+function selfReferenceCount(reply) {
+  const text = String(reply ?? '');
+  const WINDOW = 30;
+  let total = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '她') continue;
+    const window = text.slice(Math.max(0, index - WINDOW), Math.min(text.length, index + WINDOW));
+    // 窗口里出现他人专名 → 说的是别人。
+    if (OTHERS.test(window)) continue;
+    // 窗口里已经有自称 → 这句的自称位被占了，「她」只能是别人。
+    if (/(灰泽满|hzm|小满|满姐|我)/iu.test(window)) continue;
+    total += 1;
+  }
+  return total;
+}
 
 function globalChecks(reply, scenario) {
   const maxLength = scenario.maxLength ?? 120;
-  return [
-    check('括号≤1', count(reply, /（[^）]*）/gu) <= 1),
+  const maxParens = scenario.maxParens ?? 1;
+  const checks = [
+    check(`括号≤${maxParens}`, count(reply, /（[^）]*）/gu) <= maxParens),
     check('省略号≤2', count(reply, /……|\.\.\./gu) <= 2),
     check(`长度≤${maxLength}`, reply.replace(/\s/gu, '').length <= maxLength),
   ];
+  // 天然会谈及他人的场景（女同学、家人）豁免「她」检查：那里的「她」指的是别人。
+  if (!scenario.allowThirdPerson) checks.push(check('自称不用「她」', selfReferenceCount(reply) === 0));
+  return checks;
 }
 
 function evaluate(reply, scenario) {
@@ -345,7 +455,7 @@ async function main() {
   if (scenarios.length === 0) throw new Error(`no scenarios matched --only ${ONLY.join(',')}`);
 
   if (DRY_RUN) {
-    for (const scenario of scenarios) log(`- ${scenario.id}: ${scenario.prompt}`);
+    for (const scenario of scenarios) log(`- ${scenario.id}: ${promptsOf(scenario).join(' → ')}`);
     log(`dry run: ${scenarios.length} scenario(s)`);
     return;
   }
@@ -357,24 +467,90 @@ async function main() {
   const results = [];
   for (const scenario of scenarios) {
     const sessionId = await createSession();
-    const { reply, context } = await ask(sessionId, scenario.prompt);
+    const prompts = promptsOf(scenario);
+    const { reply, context, replies } = await converse(sessionId, prompts);
     const contextInjected = context.length > 0;
     const evaluated = evaluate(reply, scenario);
-    results.push({ id: scenario.id, name: scenario.name, prompt: scenario.prompt, reply, contextInjected, ...evaluated });
-    const mark = evaluated.ok ? 'PASS' : 'WARN';
-    log(`[${mark}] ${scenario.id} (${evaluated.passed}/${evaluated.total}) context=${contextInjected ? 'yes' : 'no'} ${reply.replace(/\s+/gu, ' ').slice(0, 70)}`);
-    for (const item of evaluated.checks) {
+    const extras = [];
+    // 时间快照每个会话都有，所以「不该召回」要单独看有没有人格召回段。
+    const recallInjected = context.some((text) => /记忆召回/u.test(text));
+    if (scenario.expectContext === 'present') extras.push(check('必须有召回快照', recallInjected));
+    if (scenario.expectContext === 'absent') extras.push(check('不该注入人格召回', !recallInjected));
+    if (scenario.distinct) {
+      const spoken = replies.filter((item) => item.trim().length > 0);
+      extras.push(check('多轮回复不复读', new Set(spoken).size === spoken.length));
+    }
+    const checks = [...evaluated.checks, ...extras];
+    const passedChecks = checks.filter((item) => item.pass).length;
+    const ok = passedChecks === checks.length;
+    results.push({
+      id: scenario.id,
+      name: scenario.name,
+      prompts,
+      reply,
+      replies,
+      contextInjected,
+      checks,
+      passed: passedChecks,
+      total: checks.length,
+      ok,
+    });
+    const mark = ok ? 'PASS' : 'WARN';
+    log(`[${mark}] ${scenario.id} (${passedChecks}/${checks.length}) context=${contextInjected ? 'yes' : 'no'} turns=${prompts.length} ${reply.replace(/\s+/gu, ' ').slice(0, 70)}`);
+    for (const item of checks) {
       if (!item.pass) log(`      ✗ ${item.name}`);
     }
   }
   const passed = results.filter((result) => result.ok).length;
   const contextPassed = results.filter((result) => result.contextInjected).length;
-  const summary = { host: BASE, preset: PRESET ?? null, passed, total: results.length, context: { passed: contextPassed, total: results.length }, results };
+
+  // 聚合指标：把「像不像」里能数字化的那部分摊开，方便跨版本对比。
+  const lengths = results.map((result) => result.reply.replace(/\s/gu, '').length);
+  const avgChars = lengths.length === 0 ? 0 : Math.round(lengths.reduce((sum, value) => sum + value, 0) / lengths.length);
+  const maxChars = lengths.reduce((best, value) => Math.max(best, value), 0);
+  const parens = results.reduce((sum, result) => sum + count(result.reply, /（[^）]*）/gu), 0);
+  const ellipsis = results.reduce((sum, result) => sum + count(result.reply, /……|\.\.\./gu), 0);
+  const selfRefs = results.reduce((sum, result) => sum + selfReferenceCount(result.reply), 0);
+
+  // 基线对比：只比「每个场景通过了几项」，退步即算回归。
+  const regressions = [];
+  if (BASELINE) {
+    const previous = JSON.parse(readFileSync(BASELINE, 'utf8'));
+    const before = new Map((previous.results ?? []).map((item) => [item.id, item]));
+    for (const result of results) {
+      const old = before.get(result.id);
+      if (!old) continue;
+      if (result.passed < old.passed) regressions.push(`${result.id}: ${old.passed}/${old.total} → ${result.passed}/${result.total}`);
+    }
+  }
+
+  const stats = {
+    chars: { avg: avgChars, max: maxChars },
+    symbols: { parens, ellipsis },
+    selfReferences: selfRefs,
+  };
+  const summary = {
+    host: BASE,
+    preset: PRESET ?? null,
+    passed,
+    total: results.length,
+    context: { passed: contextPassed, total: results.length },
+    stats,
+    regressions,
+    results,
+  };
   if (JSON_OUT) {
     console.log(JSON.stringify(summary, null, 2));
   } else {
-    log(`\nsummary: ${passed}/${results.length} scenarios passed`);
+    log(`\nsummary : ${passed}/${results.length} scenarios passed`);
     log(`context : ${contextPassed}/${results.length} sessions received hazel:recall (time/memory snapshot)`);
+    log(`答复长度: 平均 ${avgChars} 字 / 峰值 ${maxChars} 字`);
+    log(`符号    : 括号 ${parens} 次 / 省略号 ${ellipsis} 次（全部场景合计）`);
+    log(`自称    : 「她」当自称用 ${selfRefs} 次（红线 0）`);
+    if (regressions.length > 0) {
+      log(`\n比基线退步 ${regressions.length} 条：`);
+      for (const line of regressions) log(`  - ${line}`);
+    }
     for (const result of results) {
       if (!result.ok) {
         const failed = result.checks.filter((item) => !item.pass).map((item) => item.name).join(', ');
@@ -382,8 +558,15 @@ async function main() {
       }
     }
   }
+
+  if (SAVE) {
+    mkdirSync(path.dirname(path.resolve(SAVE)), { recursive: true });
+    writeFileSync(path.resolve(SAVE), `${JSON.stringify({ generatedAt: new Date().toISOString(), ...summary }, null, 2)}\n`, 'utf8');
+    log(`baseline: saved ${path.resolve(SAVE)}`);
+  }
   if (STRICT && passed !== results.length) process.exitCode = 1;
   if (REQUIRE_CONTEXT && contextPassed !== results.length) process.exitCode = 1;
+  if (BASELINE && regressions.length > 0) process.exitCode = 1;
 }
 
 main().catch((error) => {
