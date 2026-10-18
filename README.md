@@ -21,6 +21,8 @@ HazePersona/
 │   ├── persona.txt           #   人设卡运行时副本（deploy.ps1 从 soul-card.md 同步）
 │   └── package.json / README.md
 └── docs/
+    ├── persona-research-2026-10.md # 人格蒸馏生态调研（素材/转写/TTS/同类项目/评测）
+    ├── persona-slimming-proposal.md # E 方案：人设卡分层瘦身候选核与验收
     ├── README.md             # Hzm-AI-Bot 原 README
     └── ROADMAP.md            # Hzm-AI-Bot 重构历程与踩坑记录
 ```
