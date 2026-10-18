@@ -47,6 +47,7 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 
 - 项目名：HazePersona
 - 项目目标：维护灰泽满（Hazel）人格蒸馏数据（`persona/`）与 DSH 全局注入插件 `dsh-persona-hazel`（区段 `hazel:soul`，绕过 router-flash 预设的 persona 区段过滤）；人格数据源自 MureasAm/Hzm-AI-Bot（MIT）
+- 人格注入：`hazel:soul` 静态人设区段 + `hazel:recall` 动态召回/本地时间（`persona/recall/scenes.json` → `scripts/build-recall-data.mjs` → `plugin/dsh-persona-hazel/recall-data.json`）；人格评测 `scripts/persona-eval.mjs`
 - 中央 Actions 接口：`OasisViridis/TheMasterplan/.github/workflows/themasterplan-check.yml`（原 `OasisSaber` 账号已重名为 `OasisViridis`；重命名后旧 owner 的 reusable workflow 引用无法解析，必须用当前 owner），本仓库通过 `uses ... @v4.0.0` + `policy-ref: v4.0.0` 调用（版本一致性规则，见 `.github/workflows/check.yml`）
 - 默认分支：`main`
 - 工具基线：Jujutsu `0.43.0`（已验证版本）；Git `2.34.0` 或更高版本
