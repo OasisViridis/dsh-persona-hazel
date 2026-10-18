@@ -288,7 +288,7 @@ BBDown/yt-dlp 取音轨 + 弹幕
 | 能力 | API | 结论 |
 |---|---|---|
 | 静态/动态系统区段 | `ctx.systemPrompt.section({ name, order, text })`；`text` 可为 `(context) => string` | 可用；DSH 0.2.0-rc.2 已验证 |
-| 动态运行时上下文 | `ctx.systemPrompt.context({ name, order, text })`，渲染为 user 角色快照；文本变化时**追加**新快照并标注 "supersedes earlier"（不是替换，旧快照留在历史） | 可用：不破坏系统提示词前缀缓存；快照随轮次累积，靠压缩控制 |
+| 动态运行时上下文 | `ctx.systemPrompt.context({ name, order, text })`，渲染为 user 角色快照；文本变化时**追加**新快照并标注 "supersedes earlier"（不是替换，旧快照留在历史） | 可用：不破坏系统提示词前缀缓存；快照随轮次累积，靠压缩控制。**2026-10-19 源码核对**：`RuntimeContextProjection.project` 在 `retained.text === snapshot` 时直接返回，即文本与上一条完全相同就**不产生**新快照 |
 | 每轮消息前置处理 | `ctx.on("agent/pre-step", ({ agent, messages, step, signal }, next) => ...)` | 可注入消息，但会累积进历史；适合一次性材料，不适合每轮样本 |
 | 当前用户消息捕获 | `ctx.on("agent/inbox/claimed", ({ agent, message }) => ...)` 在组装前触发 | 可在 `context.text()` 里读「本轮用户消息」 |
 | 助手输出后处理 | 只有 `agent/request`（请求前）与 `agent/request-error`（错误重试）waterfall；没有响应改写 seam | **不可行**：上游 bot 的 `clean_reply`（括号/省略号/防复读）在 DSH 只能靠提示词与素材层解决 |
@@ -296,6 +296,8 @@ BBDown/yt-dlp 取音轨 + 弹幕
 > 这意味着：**动态召回 + 时间感知可以做**；**输出清洗不能做**，不要在这上面设计功能。
 >
 > 多轮实测（2026-10-18）：5 轮单会话中每轮新增一条 runtime-context 快照，`surfaceOp` 均为 `append`；DSH 不会自动删除旧快照，靠 "supersedes earlier" 指令与压缩控制。召回约 200–500 字/轮，长会话需留意 token 累积。
+>
+> **2026-10-19 补正**：那 5 轮每轮情境都不同，所以每轮都变——成因是「时间精确到分钟 + 情境逐轮不同」，不是「无条件追加」。源码里短路口径明确后，把 `timeGranularity` 降到 `hour`（同一整点窗口内文本字节稳定），同一情境连续对话就不再重复注入：话题连续 8–9 轮时快照条数降 50–78%、字数降 51–85%；话题跳跃时条数不变（每轮情境确实不同，快照必须自包含，部分更新会让 "supersedes earlier" 语义失真）。
 
 ### 6.3 方案 A（推荐）：动态记忆召回
 
@@ -404,8 +406,11 @@ BBDown/yt-dlp 取音轨 + 弹幕
 | D 数据治理 | ✅ 已接入 | `scripts/check.sh` / `check.ps1`：recall-data 同步、30 个单测、人设卡一致性 |
 | E 人设卡瘦身 | ✅ 已切换 | [persona-slimming-proposal.md](persona-slimming-proposal.md)（4,032 字 / 10,418 字节）；17/17 评测通过（PR #8） |
 | F 声音 | 🟡 本地原型跑通 | F5-TTS 零样本 + 仓库自带参考音；Hazel 本人音色待授权参考音；不进插件默认路径（见 docs/voice-prototype.md） |
+| G 快照去重 + top-2 | ✅ 已实现（2026-10-19） | `recall.mjs` 的 `timeGranularity`（默认 `hour`）+ `selectRecall` 的 top-2（第二名须不弱于主场景且 ≥4 分）；话题连续时快照条数 −50~78%、字数 −51~85%，跳跃话题持平 |
 
 **运行时验证（2026-10-18 10:54 重启后）**：`node scripts/persona-eval.mjs --require-context` 实测 **17/17 会话**收到含「灰泽满所在地」/「记忆召回」的运行时快照；17 场景评测 16/17，唯一失败为中文数字规则误报（`222` vs `二百二十二`），修正后复测通过。多轮实测（同一会话 5 轮）：5/5 轮都有召回，但快照是 `append` 而非替换，历史里会有 5 条 runtime-context，靠 supersedes 指令与压缩控制。
+
+**G 的状态（2026-10-19）**：代码与单测完成（37 个），静态验证全过；端到端（`persona-eval.mjs` / `verify-live.mjs`）需要完整重启 DSH 才能加载新的 `plugin-core.mjs`，因此留到重启窗口执行，不写成"已通过"。
 
 ---
 

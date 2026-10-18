@@ -3,7 +3,7 @@
 灰泽满（Hazel）人格**全局注入插件**：两层注入，所有会话生效，不依赖 agent preset。
 
 1. **`hazel:soul`（静态系统区段）**：把 `persona.txt`（同源于 HazePersona/persona/soul-card.md，2026-10-18 起为 4,032 字核心卡，由仓库根部 `deploy.ps1` 同步）注册为全局系统提示词区段。区段名刻意**不含 "persona"**：router-flash 的 `applyPersona` 会过滤名字匹配 `/persona/i` 的区段（`soul:persona` 因此失效），`hazel:soul` 绕过该过滤。
-2. **`hazel:recall`（动态运行时上下文）**：按本轮用户消息，从 `recall-data.json` 召回 **1 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地（默认 `Australia/Melbourne`）的本地时间与季节。运行时上下文由宿主以 user 角色快照承载；文本变化时追加新快照并标注 supersedes，旧快照留在历史（由 DSH 压缩处理）。
+2. **`hazel:recall`（动态运行时上下文）**：按本轮用户消息，从 `recall-data.json` 召回 **1–2 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地（默认 `Australia/Melbourne`）的本地时间与季节。运行时上下文由宿主以 user 角色快照承载：**只有文本与上一条快照不同才追加**（宿主 `RuntimeContextProjection.project` 的 `retained.text === snapshot` 短路），因此时间粒度默认降到整点，同一情境连续对话不会每轮多出一条快照。
 
 ## 数据流
 
@@ -20,6 +20,19 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 - `persona/recall/scenes.json` 是场景表的**唯一事实来源**：只做「用户消息情境 → 已有素材」的映射，不改写样本原文；`scripts/build-recall-data.mjs` 会校验所有被引用的 sample / phraseGroup / behavior / term / story / preference 是否存在。
 - 改完 `persona/` 下的数据后重跑 `node scripts/build-recall-data.mjs`（`deploy.ps1` 也会自动重建）。`--check` 模式用于校验构建产物是否最新；`scripts/check.sh` 已接入。
 - 召回是确定性关键词/正则 + 字符 bigram 兜底（见 `recall.mjs`），不调用 embedding、不联网；每轮文本受 `recallBudgetChars`（默认 700）约束。
+- **第二名的准入线**：分数不得低于主场景本身，且至少 4 分（两个关键词，或一个关键词加一正则）。放宽到「主场景一半」时实测第二名几乎全是词面巧合——「你是虚拟主播吗」带出 peer（撞「主播」）、「说好的八点直播呢」带出 caught（撞「说好的」）、「你声音好好听啊」带出 music（撞「好听」）；收紧后只有真双意图命中（「记得吃饭」= care 6 + food 6）。
+
+### 快照体积（2026-10-19 实测）
+
+宿主只在快照文本变化时追加，所以「每轮新增一条」的真实成因是时间精确到分钟 + 每轮情境不同。把时间粒度降到整点后：
+
+| 对话形态 | 旧（minute + top-1） | 新（hour + top-2） |
+|---|---|---|
+| 话题连续（吃饭聊 9 轮） | 9 条 / 2,713 字 | **2 条 / 411 字**（条数 −78%，字数 −85%） |
+| 话题连续（作息聊 8 轮） | 8 条 / 2,657 字 | **4 条 / 1,303 字**（−50% / −51%） |
+| 话题跳跃（9 轮各不同） | 9 条 / 2,636 字 | 9 条 / 2,600 字（−0% / −1.4%） |
+
+跳跃话题下条数不会变——每轮情境确实不同，快照必须自包含（宿主用 "supersedes earlier" 语义，部分更新会让模型以为旧召回失效）。收益来自「同一情境连续几轮只说一次」。
 
 ## 配置
 
@@ -34,7 +47,9 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 | `debounceMs` | `300` | 热重载防抖毫秒 |
 | `recall` | `true` | 启用动态人格召回 |
 | `recallBudgetChars` | `700` | 每轮召回文本上限（运行时夹在 200..2000） |
+| `recallMaxScenes` | `2` | 每轮最多召回几个场景（运行时夹在 1..3） |
 | `timeContext` | `true` | 注入灰泽满所在地时间/季节 |
+| `timeGranularity` | `hour` | 时间粒度：`minute` 精确到分 / `hour` 到整点 / `period` 只给时段 |
 | `timeZone` | `Australia/Melbourne` | 她的 IANA 时区；非法值回落到系统时区 |
 | `southernHemisphere` | `true` | 季节按南半球显示 |
 
@@ -47,6 +62,8 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
       config:
         recall: true
         recallBudgetChars: 500
+        recallMaxScenes: 2
+        timeGranularity: hour
         timeZone: Australia/Melbourne
 ```
 

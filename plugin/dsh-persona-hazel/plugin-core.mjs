@@ -139,7 +139,9 @@ export function apply(ctx, config) {
         }),
       );
     }
-    // 动态运行时上下文：时间 + 按消息召回；文本变化时追加新快照并标注 supersedes，旧快照留在历史（由宿主压缩处理）。
+    // 动态运行时上下文：时间 + 按消息召回。宿主只在文本与上一条快照不同时才追加新快照
+    // （RuntimeContextProjection.project 里的 `retained.text === snapshot` 短路），所以时间
+    // 粒度默认降到整点：同一小时窗口内文本字节稳定，不会每轮多一条 200–500 字快照。
     if (typeof ctx.systemPrompt.context === "function") {
       disposers.push(
         ctx.systemPrompt.context({
@@ -155,7 +157,9 @@ export function apply(ctx, config) {
               recall: config.recall,
               timeContext: config.timeContext,
               budget: clampBudget(config.recallBudgetChars),
+              maxScenes: config.recallMaxScenes,
               southernHemisphere: config.southernHemisphere,
+              granularity: config.timeGranularity,
             });
             return text;
           },

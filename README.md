@@ -55,7 +55,7 @@ HazePersona/
 **机制**：DSH profile（桌面端为 `~/.dsh/profiles/desktop`，旧版网页端为 `profiles/web`）里的 `dsh-persona-hazel` 插件做两层注入：
 
 1. **`hazel:soul`**：把 `persona.txt` 注册为系统提示词区段（全局 prompt 层，order 0）；区段名避开 `/persona/i` 过滤。
-2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 1 个情境的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以 user 角色运行时快照承载；快照变更时追加并标注 supersedes，旧快照留在历史（由 DSH 压缩处理）。
+2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 **1–2 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以 user 角色运行时快照承载。宿主只在**文本与上一条快照不同**时追加新快照（`RuntimeContextProjection.project` 的 `retained.text === snapshot` 短路），所以时间粒度默认降到整点（`timeGranularity`），同一情境连续几轮只注入一次。
 
 profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.json` 重建、`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
 
@@ -63,7 +63,7 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 
 **为什么不用 dsh-soul-md 的 `soul:persona`**：router-flash 预装的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**（桌面端默认预设是 `standard`，同样适用）。
 
-**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2`）。2026-10-18 10:54 重启后实测：**17/17 会话收到 `hazel:recall` 快照**（时间 + 人格召回），17 场景人格评测通过（12 人格 + 5 世界事实；其中 1 条首轮为中文数字规则误报，修正后复测通过）。2026-10-18 18:56 **E 切换**：人设卡 4,032 字 / 10,418 字节（较 5,788 字省 30.3% 字符 / 31.4% 字节），17/17 评测通过；世界/记忆细节由 `hazel:recall` 补全。
+**状态**：插件已装入桌面端 `desktop` profile，`persona.txt` 已同步 ✅（2026-10-18，DSH 桌面端 `0.2.0-rc.2`）。2026-10-18 10:54 重启后实测：**17/17 会话收到 `hazel:recall` 快照**（时间 + 人格召回），17 场景人格评测通过（12 人格 + 5 世界事实；其中 1 条首轮为中文数字规则误报，修正后复测通过）。2026-10-18 18:56 **E 切换**：人设卡 4,032 字 / 10,418 字节（较 5,788 字省 30.3% 字符 / 31.4% 字节），17/17 评测通过；世界/记忆细节由 `hazel:recall` 补全。2026-10-19 **快照去重 + 召回 top-2**：时间粒度降到整点，召回放宽到两个情境（第二名须不弱于主场景且 ≥4 分）；话题连续时快照条数降 50–78%、字数降 51–85%，跳跃话题下持平。
 
 ### 部署/更新
 

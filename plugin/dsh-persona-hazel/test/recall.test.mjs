@@ -10,7 +10,7 @@ const DATA = JSON.parse(readFileSync(join(HERE, '..', 'recall-data.json'), 'utf8
 
 function sceneOf(message) {
   const selected = selectRecall(message, DATA);
-  return selected?.scene?.id ?? null;
+  return selected?.scenes?.[0]?.scene?.id ?? null;
 }
 
 test('被夸命中 praise 场景', () => {
@@ -58,7 +58,8 @@ test('无场景命中时 bigram 兜底可用', () => {
   const selected = selectRecall('灰泽满今晚还来吗', tiny);
   assert.ok(selected !== null);
   assert.equal(selected.fallback, true);
-  assert.equal(selected.scene, null);
+  assert.equal(selected.scenes.length, 1);
+  assert.equal(selected.scenes[0].scene, null);
 });
 
 test('召回文本有明确边界与“不要照抄”提示', () => {
@@ -79,18 +80,92 @@ test('无命中时返回空串', () => {
   assert.equal(renderRecall('帮我把这个函数重构成 async', DATA), '');
 });
 
+test('一句混两个意图时召回两个场景，主场景仍在最前', () => {
+  const selected = selectRecall('你声音好好听啊，今晚还直播吗', DATA);
+  assert.ok(selected !== null);
+  const ids = selected.scenes.map((entry) => entry.scene?.id);
+  assert.equal(ids[0], 'praise');
+  assert.ok(ids.includes('misslive'), `scenes=${ids.join(',')}`);
+  assert.ok(ids.length <= 2);
+});
+
+test('第二名过准入线才一起召回，maxScenes=1 时退回单场景', () => {
+  const fake = {
+    scenes: [
+      { id: 'a', label: 'A', priority: 10, keywords: ['好听', '声音'], patterns: [], samples: [] },
+      { id: 'b', label: 'B', priority: 5, keywords: ['直播', '今晚'], patterns: [], samples: [] },
+    ],
+    samples: {},
+    fallbackThreshold: 0.16,
+  };
+  const both = selectRecall('声音好听，不过今晚直播吗', fake).scenes.map((entry) => entry.scene.id);
+  assert.deepEqual(both, ['a', 'b']);
+  const single = selectRecall('声音好听，不过今晚直播吗', fake, { maxScenes: 1 }).scenes.map((entry) => entry.scene.id);
+  assert.deepEqual(single, ['a']);
+});
+
+test('词面巧合不搭便车（真实数据）', () => {
+  assert.equal(selectRecall('你是虚拟主播吗', DATA).scenes.length, 1);
+  assert.equal(selectRecall('说好的八点直播呢', DATA).scenes.length, 1);
+  assert.equal(selectRecall('你声音好好听啊', DATA).scenes.length, 1);
+});
+
+test('第二名分数不够时不搭便车', () => {
+  const fake = {
+    scenes: [
+      { id: 'strong', label: '强命中', priority: 10, keywords: ['好听', '厉害', '声音'], patterns: [], samples: [] },
+      { id: 'weak', label: '弱命中', priority: 1, keywords: ['今天'], patterns: [], samples: [] },
+    ],
+    samples: {},
+    fallbackThreshold: 0.16,
+  };
+  const ids = selectRecall('你声音好好听，太厉害了，今天也很棒', fake).scenes.map((entry) => entry.scene.id);
+  assert.deepEqual(ids, ['strong']);
+});
+
+test('召回文本可同时包含两个情境', () => {
+  const text = renderRecall('你声音好好听啊，今晚还直播吗', DATA);
+  const scenes = text.split('\n').filter((line) => line.startsWith('情境：'));
+  assert.ok(scenes.length >= 2, `渲染出的情境行：${scenes.join(' | ')}`);
+});
+
 test('身份场景即使没有样本也能给出身份提示', () => {
   const text = renderRecall('你是虚拟主播吗', DATA);
   assert.match(text, /风纪委员/);
 });
 
-test('时区渲染：墨尔本当地日期/时间/季节', () => {
+test('时区渲染：默认小时粒度（当地日期/整点/季节）', () => {
   const fixed = new Date('2026-10-18T13:41:00Z'); // 墨尔本 AEDT = 次日 00:41
   const text = renderTime(fixed, 'Australia/Melbourne');
   assert.match(text, /2026-10-19/);
-  assert.match(text, /00:41/);
-  assert.match(text, /凌晨/);
+  assert.match(text, /凌晨零点/);
+  assert.doesNotMatch(text, /00:41/);
   assert.match(text, /南半球春季/);
+});
+
+test('时间粒度可配：minute 保留分钟，period 只给时段，hour 到整点', () => {
+  const fixed = new Date('2026-10-18T13:41:00Z'); // 当地 00:41
+  assert.match(renderTime(fixed, 'Australia/Melbourne', { granularity: 'minute' }), /00:41/);
+  const period = renderTime(fixed, 'Australia/Melbourne', { granularity: 'period' });
+  assert.match(period, /凌晨/);
+  assert.doesNotMatch(period, /点/);
+  const later = new Date('2026-10-18T15:20:00Z'); // 当地 02:20
+  assert.match(renderTime(later, 'Australia/Melbourne'), /凌晨 2 点/);
+});
+
+test('同一整点窗口内两次组装字节相同（宿主靠它跳过新快照）', () => {
+  const build = (iso) =>
+    buildContextText({
+      message: '你声音好好听啊',
+      data: DATA,
+      now: new Date(iso),
+      timeZone: 'Australia/Melbourne',
+    });
+  const first = build('2026-10-18T13:41:00Z'); // 当地 00:41
+  const second = build('2026-10-18T13:58:00Z'); // 当地 00:58，同一整点
+  assert.equal(first, second);
+  const nextHour = build('2026-10-18T14:05:00Z'); // 当地 01:05，跨整点
+  assert.notEqual(first, nextHour);
 });
 
 test('非法时区不抛错（回落到系统时区）', () => {
