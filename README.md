@@ -26,7 +26,7 @@ HazePersona/
 │   ├── behavior/             #   behaviors.json（8 条行为模式）
 │   ├── speech/               #   phrases.json（11 组措辞指纹）/ voice_samples.json（83 个声音样本）
 │   └── world/                #   terms / core_stories / legendary / preferences / statement_final(315条)
-├── plugin/dsh-persona-hazel/ # 人格注入插件（link 装入 web profile）
+├── plugin/dsh-persona-hazel/ # 人格注入插件（link 装入 DSH profile，桌面端 desktop 为默认）
 │   ├── index.js              #   注册 hazel:soul 区段（全局 prompt 层 + 文件热重载）
 │   ├── persona.txt           #   人设卡运行时副本（deploy.ps1 从 soul-card.md 同步）
 │   └── package.json / README.md
@@ -56,6 +56,7 @@ HazePersona/
 .\deploy.ps1 -Profile web    # 显式指定旧版 web profile
 .\deploy.ps1 -DryRun         # 只打印计划，不写文件
 .\deploy.ps1 -Verify         # 只校验接线，缺一项退出码 1
+.\deploy.ps1 -DshHome <dir>  # 覆盖 Harness home（默认 $env:DSH_HOME，其次 ~/.dsh）
 ```
 
 - **首次安装**（新插件）：需**完整重启 DSH**（桌面端：托盘退出后重新打开；网页端：杀 dsh web 进程 → 弹窗点"重新启动"）。
@@ -68,15 +69,15 @@ HazePersona/
 ### 验证
 
 - 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、link 依赖、node_modules 链接、patch 行四项）。
-- 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`）。
+- 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`；PowerShell 入口只转发同一脚本，需要 Git for Windows 带的 bash）。
 - 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`
   - 默认对 `$DSH_WEB_URL` 验证（桌面端 `http://127.0.0.1:19387`），第二个参数才是指定预设；省略时用宿主默认预设（桌面端 `standard`），不再硬编码 `router-flash`。
   - DSH 0.2.x 的 `/api` 需要认证：脚本用 `$DSH_HOME\.credentials.yaml` 里 `client-connection/browser-session` 的签名密钥在本地签发会话 cookie（只读、不出本机），走 `session/create → session/prompt → session/list → session/page` 取回复。
-  - 回复命中"风纪委员/灰泽满/绿冻"等锚点判 PASS；2026-10-18 桌面端实测回复 **"灰泽满呀，永远16岁的风纪委员哦。"**。
+  - 回复命中"风纪委员/灰泽满/绿冻"等锚点判 PASS；2026-10-18 桌面端实测回复 **"是永远16岁的风纪委员哦，你问这个干嘛。"**，`PASS: hazel:soul 生效`。
 
 ## Codex 部署方式（Windows 全局指令）
 
-**机制**：通过 `codex-keysmith` 把唯一事实源 `persona/soul-card.md` 字节级无损部署为 Windows Codex（`C:\Users\Oasis\.codex`）的全局指令（`config.toml` 顶层 `model_instructions_file`），使所有新 Codex 会话携带完整灰泽满人格。
+**机制**：通过 `codex-keysmith` 把唯一事实源 `persona/soul-card.md` 字节级无损部署为 Windows Codex（`%USERPROFILE%\.codex`）的全局指令（`config.toml` 顶层 `model_instructions_file`），使所有新 Codex 会话携带完整灰泽满人格。
 
 - **手册与红线**：详见 [docs/codex-deployment.md](docs/codex-deployment.md)（含回滚、沙箱实测协议与已知限制）。
 - **部署脚本**：推荐薄包装 `pwsh -NoProfile -File scripts/deploy-codex.ps1 -DryRun`（预览）/ `-Yes`（确认写入）；自动留痕 `hooks.json` 哈希以防 mnemon 钩子被隔离。

@@ -55,7 +55,7 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
   ```bash
   bash scripts/check.sh
   ```
-  PowerShell 等价委托（`scripts/check.ps1` 按 UTF-8 BOM 保存，Windows PowerShell 5.1 也能正确读取其中的中文锚点；`pwsh` 同样适用）：
+  PowerShell 等价委托（`scripts/check.ps1` 只找 Git 自带的 bash 转发 `scripts/check.sh`，不复制规则；需要 Git for Windows 的 bash，Windows PowerShell 5.1 与 `pwsh` 均可）：
   ```powershell
   powershell -NoProfile -File scripts/check.ps1
   ```
@@ -81,8 +81,8 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 bash scripts/check.sh
 ```
 
-PowerShell 等价入口委托上述权威命令（不维护第二套验证规则；Windows
-PowerShell 5.1 与 PowerShell 7 均可）：
+PowerShell 等价入口只转发上述权威命令（不维护第二套验证规则；转发需要
+Git for Windows 提供的 bash，Windows PowerShell 5.1 与 PowerShell 7 均可）：
 
 ```powershell
 powershell -NoProfile -File scripts/check.ps1

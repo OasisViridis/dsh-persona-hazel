@@ -15,6 +15,7 @@
 #   .\deploy.ps1 -Profile web    # legacy `dsh web` profile instead of desktop
 #   .\deploy.ps1 -DryRun         # print the plan, write nothing
 #   .\deploy.ps1 -Verify         # read-only wiring check; exits 1 on any failure
+#   .\deploy.ps1 -DshHome <dir>  # Harness home override (default: $env:DSH_HOME, then ~/.dsh)
 #
 # A NEW plugin needs a full DSH restart; afterwards persona.txt edits hot-reload.
 param(
@@ -75,21 +76,54 @@ function Write-Utf8NoBom([string]$path, [string]$text) {
   [System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+# Every step reports a structured outcome instead of a status keyword inside its
+# message: the verify gate must not depend on English wording.
+function New-StepResult([bool]$ok, [string]$message) {
+  return @{ Ok = $ok; Message = $message }
+}
+
+# Refuse to write a package.json the host could no longer parse.
+function Assert-Json([string]$text, [string]$path) {
+  try { $null = $text | ConvertFrom-Json }
+  catch { throw ("refusing to write " + $path + ": the edit would produce invalid JSON, file left untouched") }
+}
+
 # 1) persona card -> plugin persona.txt
 function Sync-PersonaCard {
   $cardHash = (Get-FileHash -LiteralPath $soulCard -Algorithm SHA256).Hash
   $txtHash = if (Test-Path -LiteralPath $personaTxt) { (Get-FileHash -LiteralPath $personaTxt -Algorithm SHA256).Hash } else { '' }
-  if ($cardHash -eq $txtHash) { return 'persona.txt already in sync' }
-  if ($DryRun -or $Verify) { return 'persona.txt OUT OF SYNC' }
+  if ($cardHash -eq $txtHash) { return (New-StepResult $true 'persona.txt already in sync') }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'persona.txt OUT OF SYNC') }
   Copy-Item -LiteralPath $soulCard -Destination $personaTxt -Force
-  return "persona.txt synced ($((Get-Item -LiteralPath $personaTxt).Length) bytes)"
+  return (New-StepResult $true "persona.txt synced ($((Get-Item -LiteralPath $personaTxt).Length) bytes)")
 }
 
 # 2) package.json link dependency
 function Ensure-ProfileDependency {
   $raw = Get-Utf8Text $packageJson
-  if ($raw -match '"dsh-persona-hazel"\s*:') { return 'package.json dependency present' }
-  if ($DryRun -or $Verify) { return 'package.json dependency MISSING' }
+  if (-not $raw) {
+    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json missing') }
+    throw ('package.json not found in ' + $profileDir + '; start the DSH client once so it creates the profile, or add "dsh-persona-hazel": "' + $linkSpec + '" manually')
+  }
+  # The entry only counts as wired when it still points at THIS checkout: a stale
+  # link (repo moved) or a published version is a mismatch, not "present".
+  $existing = [regex]::Match($raw, '"dsh-persona-hazel"\s*:\s*"([^"]*)"')
+  if ($existing.Success -and $existing.Groups[1].Value -cne $linkSpec) {
+    if ($DryRun -or $Verify) {
+      return (New-StepResult $false ('package.json dependency MISMATCH (found ' + $existing.Groups[1].Value + ', expected ' + $linkSpec + ')'))
+    }
+    $value = $existing.Groups[1]
+    $updated = $raw.Substring(0, $value.Index) + $linkSpec + $raw.Substring($value.Index + $value.Length)
+    Assert-Json $updated $packageJson
+    Write-Utf8NoBom $packageJson $updated
+    return (New-StepResult $true ('package.json dependency updated to ' + $linkSpec))
+  }
+  if ($existing.Success) { return (New-StepResult $true 'package.json dependency present') }
+  if ($raw -match '"dsh-persona-hazel"\s*:') {
+    if ($DryRun -or $Verify) { return (New-StepResult $false ('package.json dependency has a non-string value (expected ' + $linkSpec + ')')) }
+    throw ('the dsh-persona-hazel entry in ' + $packageJson + ' is not a plain string; set it to "' + $linkSpec + '" manually')
+  }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json dependency MISSING') }
   $match = [regex]::Match($raw, '"dependencies"[ \t]*:[ \t]*\{')
   if (-not $match.Success) {
     throw ('cannot add the dependency automatically (no "dependencies" object in ' + $packageJson + '); add "dsh-persona-hazel": "' + $linkSpec + '" manually')
@@ -97,23 +131,38 @@ function Ensure-ProfileDependency {
   $eol = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
   $lineStart = $raw.LastIndexOf("`n", [Math]::Max(0, $match.Index - 1)) + 1
   $linePrefix = $raw.Substring($lineStart, $match.Index - $lineStart)
-  $indent = ($linePrefix -replace '[^ \t].*$', '') + '  '
-  $entry = '"dsh-persona-hazel": "' + $linkSpec + '",'
+  $keyIndent = ($linePrefix -replace '[^ \t].*$', '')
+  $indent = $keyIndent + '  '
+  $entry = '"dsh-persona-hazel": "' + $linkSpec + '"'
   $afterIndex = $match.Index + $match.Length
   $rest = $raw.Substring($afterIndex)
-  if ($rest.StartsWith($eol)) {
+  $empty = [regex]::Match($rest, '^([ \t]*(?:\r?\n[ \t]*)?)\}')
+  if ($empty.Success) {
+    # Empty object: the lone entry must not get a trailing comma, otherwise the
+    # closing brace turns it into invalid JSON (pnpm writes `{}`, `{ }` and `{ \n }`).
+    $gap = $empty.Groups[1].Value
+    if ($gap.Contains("`n")) {
+      $nl = if ($gap.Contains("`r`n")) { "`r`n" } else { "`n" }
+      $updated = $raw.Insert($afterIndex, $nl + $indent + $entry)
+    }
+    else {
+      $updated = $raw.Insert($afterIndex + $gap.Length, $eol + $indent + $entry + $eol + $keyIndent)
+    }
+  }
+  elseif ($rest.StartsWith($eol)) {
     # block-style object (pnpm writes this): insert as the first dependency line
-    $updated = $raw.Insert($afterIndex + $eol.Length, $indent + $entry + $eol)
+    $updated = $raw.Insert($afterIndex + $eol.Length, $indent + $entry + ',' + $eol)
   }
   elseif ($rest.StartsWith("`n")) {
-    $updated = $raw.Insert($afterIndex + 1, $indent + $entry + "`n")
+    $updated = $raw.Insert($afterIndex + 1, $indent + $entry + ',' + "`n")
   }
   else {
     # compact object: fall back to a new line before the inline entries
-    $updated = $raw.Insert($afterIndex, $eol + $indent + $entry)
+    $updated = $raw.Insert($afterIndex, $eol + $indent + $entry + ',')
   }
+  Assert-Json $updated $packageJson
   Write-Utf8NoBom $packageJson $updated
-  return "package.json dependency added ($linkSpec)"
+  return (New-StepResult $true ('package.json dependency added (' + $linkSpec + ')'))
 }
 
 # 3) node_modules link
@@ -123,22 +172,26 @@ function Ensure-NodeModulesLink {
     $targetText = if ($target -is [array]) { ($target -join ';') } else { "$target" }
     $expected = (Resolve-Path -LiteralPath $pluginDir).Path
     if ($targetText -and ($targetText.TrimEnd('\') -ne $expected.TrimEnd('\'))) {
-      return "node_modules link present but points elsewhere: $targetText"
+      # pnpm owns this link, so repair it by hand rather than deleting a symlink
+      # the package manager created; say so, because rerunning alone cannot fix it.
+      return (New-StepResult $false ('node_modules link present but points elsewhere: ' + $targetText + '; repair: cmd /c rmdir "' + $linkPath + '", then rerun'))
     }
-    return 'node_modules link present'
+    return (New-StepResult $true 'node_modules link present')
   }
-  if ($DryRun -or $Verify) { return 'node_modules link MISSING' }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'node_modules link MISSING') }
   $parent = Split-Path -Parent $linkPath
   if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
   New-Item -ItemType Junction -Path $linkPath -Target $pluginDir | Out-Null
-  return "node_modules junction created -> $pluginDir"
+  return (New-StepResult $true "node_modules junction created -> $pluginDir")
 }
 
 # 4) cordis.patch.yml insert row
 function Ensure-PatchRow {
   $content = Get-Utf8Text $patchFile
-  if ($content -match 'dsh-persona-hazel') { return 'cordis.patch.yml insert row present' }
-  if ($DryRun -or $Verify) { return 'cordis.patch.yml insert row MISSING' }
+  # Match the loader entry itself: a leftover comment that merely mentions the
+  # plugin must not be mistaken for a wired insert row.
+  if ($content -match '(?m)^[ \t]*-[ \t]+id:[ \t]*persona-hazel[ \t]*$') { return (New-StepResult $true 'cordis.patch.yml insert row present') }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'cordis.patch.yml insert row MISSING') }
   $eol = if ($content.Contains("`r`n")) { "`r`n" } else { "`n" }
   $block = @(
     '# HazePersona: global persona section (hazel:soul), loaded from this checkout.',
@@ -149,7 +202,7 @@ function Ensure-PatchRow {
   $base = $content.TrimEnd("`r", "`n")
   $next = if ($base) { $base + $eol + $eol + $block + $eol } else { $block + $eol }
   Write-Utf8NoBom $patchFile $next
-  return 'cordis.patch.yml insert row added'
+  return (New-StepResult $true 'cordis.patch.yml insert row added')
 }
 
 # Planned steps; -Verify only reports, -DryRun only prints.
@@ -163,15 +216,14 @@ $steps = @(
 $problems = @()
 foreach ($step in $steps) {
   $result = & $step.Run
-  $isProblem = $result -match 'MISSING|OUT OF SYNC|points elsewhere'
-  if ($isProblem) { $problems += $result }
-  $tag = if ($DryRun) { '[plan]' } elseif ($isProblem) { '[warn]' } else { '[ ok ]' }
-  Write-Host ("{0} {1}: {2}" -f $tag, $step.Name, $result)
+  if (-not $result.Ok) { $problems += $result.Message }
+  $tag = if ($DryRun) { '[plan]' } elseif (-not $result.Ok) { '[warn]' } else { '[ ok ]' }
+  Write-Host ("{0} {1}: {2}" -f $tag, $step.Name, $result.Message)
 }
 
 if ($Verify) {
   if ($problems.Count -gt 0) {
-    Write-Host "verify failed ($($problems.Count) problem(s)); run .\deploy.ps1 to repair"
+    Write-Host "verify failed ($($problems.Count) problem(s)); run .\deploy.ps1 to repair (link problems print the manual command)"
     exit 1
   }
   Write-Host 'verify ok: profile wiring is complete'
