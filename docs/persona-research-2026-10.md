@@ -403,7 +403,7 @@ BBDown/yt-dlp 取音轨 + 弹幕
 | C 人格评测 | ✅ 已实现并跑通 | `scripts/persona-eval.mjs`；17 场景（12 人格 + 5 世界事实）；上线后实测 17/17 会话收到召回；17 场景 16/17（唯一失败为中文数字规则误报，修正后复测通过） |
 | D 数据治理 | ✅ 已接入 | `scripts/check.sh` / `check.ps1`：recall-data 同步、30 个单测、人设卡一致性 |
 | E 人设卡瘦身 | ✅ 已切换 | [persona-slimming-proposal.md](persona-slimming-proposal.md)（4,032 字 / 10,418 字节）；17/17 评测通过（PR #8） |
-| F 声音 | ⏳ 未做 | 独立项目；权利红线，不进插件默认路径 |
+| F 声音 | 🟡 本地原型跑通 | F5-TTS 零样本 + 仓库自带参考音；Hazel 本人音色待授权参考音；不进插件默认路径（见 docs/voice-prototype.md） |
 
 **运行时验证（2026-10-18 10:54 重启后）**：`node scripts/persona-eval.mjs --require-context` 实测 **17/17 会话**收到含「灰泽满所在地」/「记忆召回」的运行时快照；17 场景评测 16/17，唯一失败为中文数字规则误报（`222` vs `二百二十二`），修正后复测通过。多轮实测（同一会话 5 轮）：5/5 轮都有召回，但快照是 `append` 而非替换，历史里会有 5 条 runtime-context，靠 supersedes 指令与压缩控制。
 
