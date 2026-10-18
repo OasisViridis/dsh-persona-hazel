@@ -5,8 +5,8 @@
 ## 事实来源与唯一性
 
 - `persona/` 是人格数据的**唯一事实来源**：
-  - `persona/soul-card.md` — **部署源**：soul.md 风格全局人设卡（当前生效版本），deploy.ps1 同步为 `plugin/dsh-persona-hazel/persona.txt`
-  - `persona/haze-persona.txt` — soul-card.md 的纯文本镜像（完整版存档；check.sh/check.ps1 强制与 soul-card.md 字节一致，改人格只改 soul-card.md 再同步）
+  - `persona/soul-card.md` — **部署源**：soul.md 风格全局人设卡（当前生效版本，2026-10-18 E 起为核心卡 4,032 字；世界/记忆细节由 `hazel:recall` 补，不要把细节塞回静态卡），deploy.ps1 同步为 `plugin/dsh-persona-hazel/persona.txt`
+  - `persona/haze-persona.txt` — soul-card.md 的纯文本镜像（与 soul-card.md 字节一致；check.sh/check.ps1 强制校验，改人格只改 soul-card.md 再同步）
   - `persona/recall/scenes.json` — **召回场景表**（消息情境 → voice_samples / phrases / behaviors / terms 的映射），只做映射，不改写样本原文
   - `persona/` 子目录（core/behavior/speech/world）是 Hzm-AI-Bot 原始蒸馏 JSON：静态人设卡与召回数据都从这里取，但它们是上游证据，**不要当注入口手改**；要改先确认属于本项目新增还是上游数据
 - 运行时副本：
