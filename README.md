@@ -20,7 +20,9 @@ HazePersona/
 │   ├── check.ps1             #   PowerShell 验证委托入口
 │   ├── build-recall-data.mjs #   人格召回数据构建（persona/ → recall-data.json）
 │   ├── recall-eval.mjs       #   召回质量回归（70 条标注集，离线，接 check.sh）
-│   ├── persona-eval.mjs      #   17 场景人格评测（12 人格 + 5 世界事实，DSH 运行时）
+│   ├── cross-surface-check.mjs #  跨端一致性（DSH 副本 vs Codex 指令 vs 源卡）
+│   ├── hazel-voice.mjs       #   本地声音出口（F5-TTS：say 出 wav / serve 网页试听）
+│   ├── persona-eval.mjs      #   23 场景人格评测（17 人格/世界 + 6 负例红线，DSH 运行时）
 │   └── deploy-codex.ps1      #   Codex 部署薄包装脚本
 ├── persona/                  # ★ 人格数据源（唯一事实来源）
 │   ├── soul-card.md          #   部署源：soul.md 风格全局人设卡（当前生效版本）
@@ -39,14 +41,16 @@ HazePersona/
 │   ├── test/recall.test.mjs  #   node --test 召回单测
 │   └── package.json / README.md
 └── docs/
+    ├── README.md             # 文档索引（当前仓库 vs 上游归档，先说该读哪份）
     ├── codex-deployment.md   # Codex 人格部署手册与红线
     ├── handoff-codex-deploy-20260821.md # Codex 部署任务书与验收记录
-    ├── persona-research-2026-10.md # 人格蒸馏生态调研（素材/转写/TTS/同类项目/评测）
+    ├── persona-research-2026-10.md # 人格蒸馏生态调研 + A–H 方案落地状态
     ├── persona-slimming-proposal.md # E 方案：人设卡分层瘦身候选核与验收
     ├── voice-prototype.md    # F 本地 TTS 原型（F5-TTS 零样本，非 Hazel 音色）
     ├── voice-training-data.md # F 训练音频：THCHS-30（Apache-2.0，非 Hazel）
-    ├── README.md             # Hzm-AI-Bot 原 README
-    └── ROADMAP.md            # Hzm-AI-Bot 重构历程与踩坑记录
+    └── upstream/             # 上游 QQ bot 工程归档（结构不适用于本仓库，方法论仍适用）
+        ├── README.md         #   Hzm-AI-Bot 原 README
+        └── ROADMAP.md        #   Hzm-AI-Bot 重构历程与踩坑记录
 ```
 
 > 注：Hzm-AI-Bot 的 `*_vectors.json`（预计算向量）未随库保留——那是原工程检索层产物，DSH 静态人格注入用不到，需要时可从原仓库重跑 `precompute` 生成。
@@ -108,7 +112,7 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 - 蒸馏管线（原工程）：transcribe → clean → convert-to-chat → mine-phrases → generate-statements → 向量化 → 人工审批。
 - 本仓库的蒸馏：把原工程**检索注入式**的分层数据（行为/措辞/术语/记忆/梗/偏好）浓缩为**静态人格文本**，供 DSH 每次会话直接注入。这是"提示词不是越多越好"原则下的折中：DSH 不做向量检索，所以只保留高价值锚点，删除重复与低信号内容。
 - `soul-card.md` 是**全局注入版人设卡**：开头声明"你是灰泽满，但也是用户装进 DSH 的协作者"，适配所有会话（含干活会话）都带人设的场景。
-- 想要更强还原（检索注入、行为 L3、记忆系统），原工程是 NoneBot2 + NapCat 的独立 QQ bot，见 `docs/README.md`。
+- 想要更强还原（检索注入、行为 L3、记忆系统），原工程是 NoneBot2 + NapCat 的独立 QQ bot，见 [`docs/upstream/README.md`](docs/upstream/README.md)。
 
 ## 修改流程
 
