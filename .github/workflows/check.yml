@@ -1,8 +1,9 @@
 name: Check
 
 on:
+  # 不限 base 分支：堆叠 PR（base 是另一个特性分支）也要跑检查，
+  # 否则多 change 链在合并前完全没验证。
   pull_request:
-    branches: [main]
     types: [opened, edited, reopened, synchronize]
 
   push:
