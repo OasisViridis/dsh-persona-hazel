@@ -21,3 +21,9 @@ Thumbs.db
 # python bytecode
 __pycache__/
 *.pyc
+
+# visualize card copies generated in-session
+viz/
+
+# local evaluation reports (keep the annotated sets, not the runs)
+outputs/

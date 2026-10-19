@@ -1,7 +1,7 @@
 {
   "_readme": "人格召回场景表（dsh-persona-hazel 运行时召回的唯一事实来源）。rules：① 只做「用户消息情境 → 已有素材」的映射，不新增、不改写 voice_samples；② 一个场景 = 一个情境，keywords/patterns 命中后取优先级最高者；③ samples 必须来自 persona/speech/voice_samples.json，phraseGroup 来自 phrases.json，behavior 来自 behavior/behaviors.json，terms 来自 world/terms.json——scripts/build-recall-data.mjs 会校验；④ note 是给模型的短提示（≤80 字），不是台词。",
   "budgetChars": 700,
-  "fallbackThreshold": 0.16,
+  "fallbackThreshold": 0.25,
   "scenes": [
     {
       "id": "identity",
@@ -315,6 +315,7 @@
         "单口相声",
         "喜欢我",
         "爱不爱",
+        "爱我",
         "我重要"
       ],
       "patterns": [
