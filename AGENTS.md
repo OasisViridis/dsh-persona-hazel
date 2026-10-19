@@ -63,7 +63,8 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
 - 部署与运行环境：DSH 桌面端（Electron，默认 `~/.dsh/profiles/desktop`，`/api` 端口 19387）为主，旧版网页端 `profiles/web` 兼容；`dsh plugin --profile desktop` 被桌面端拒绝，插件走 profile 文件接线
 - 合并方式：只接受人类决定的 Squash Merge
 - 部署与人格维护：见 [DSH-WORKSPACE.md](DSH-WORKSPACE.md)（DSH 挂载、deploy.ps1、人设卡修改流程、双注入禁忌）
-- Codex 人格部署：codex-keysmith 路线把 `persona/soul-card.md` 部署为 Windows Codex 全局指令（`model_instructions_file`），手册与红线见 [docs/codex-deployment.md](docs/codex-deployment.md)；2026-08-21 生产 active，DSH 侧插件不受影响
+- Codex 人格部署：codex-keysmith 路线把 `persona/soul-card.md` 部署为 Windows Codex 全局指令（`model_instructions_file`），手册与红线见 [docs/codex-deployment.md](docs/codex-deployment.md)。**状态：2026-10-08 被 keysmith uninstall**，当前 `~/.codex/config.toml` 里没有 `model_instructions_file`；两端是否一致用 `node scripts/cross-surface-check.mjs` 查（`--strict` 时不一致退出码 1）
+- 人格质量回归：`node scripts/recall-eval.mjs`（召回标注集，离线、已接入 `check.sh` 第 7 项）与 `node scripts/persona-eval.mjs`（23 场景运行时评测，需 DSH 在 19387 运行；`--baseline` 比对基线、`--save` 存档）
 - 数据来源与许可：见 [README.md](README.md) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ## 任务路径
