@@ -36,7 +36,9 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 
 ## 配置
 
-`cordis.patch.yml` 里 `persona-hazel` 行的 `config` 全部可选，缺失不会炸插件树：
+本包是 bundle：`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`，里面插入 `persona-hazel` 行；profile 的 `package.json` 把它写进 `dsh.profile.bundles` 后加载（DSH 插件页的开关改的就是这一行）。`persona-hazel` 行的 `config` 全部可选，缺失不会炸插件树；要改默认值就在 profile 的 `cordis.patch.yml` 里写一条 `- id: persona-hazel` 的 config 覆盖（**不要**再写 `insert:`）。
+
+可用字段：
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
@@ -56,15 +58,14 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 示例：
 
 ```yaml
-- insert:
-    - id: persona-hazel
-      name: 'dsh-persona-hazel'
-      config:
-        recall: true
-        recallBudgetChars: 500
-        recallMaxScenes: 2
-        timeGranularity: hour
-        timeZone: Australia/Melbourne
+# profile 的 cordis.patch.yml：只覆盖 config，不要再写 insert（bundle 已经插入该行）
+- id: persona-hazel
+  config:
+    recall: true
+    recallBudgetChars: 500
+    recallMaxScenes: 2
+    timeGranularity: hour
+    timeZone: Australia/Melbourne
 ```
 
 ## 安装
@@ -81,10 +82,13 @@ persona/recall/scenes.json          ┘        （校验 id 存在、预算、�
 2. `recall-data.json`（从 persona/ 重建）；
 3. `package.json` 的 `"dsh-persona-hazel": "link:<仓库路径>/plugin/dsh-persona-hazel"`；
 4. `node_modules\dsh-persona-hazel` 链接（缺则建 junction；桌面端 pnpm 已建软链时不改动）；
-5. `cordis.patch.yml` 的 `persona-hazel` insert 行。
+5. 清掉 `cordis.patch.yml` 里旧接线的 `persona-hazel` insert 行；
+6. 把 `dsh-persona-hazel` 写进 `package.json` 的 `dsh.profile.bundles`（插件页的入口）。
 
 > 桌面端（DSH 0.2.x）由 Electron 独占管理 `profiles/desktop`，`dsh plugin --profile desktop ...` 会被拒绝，
-> 因此本地开发插件只能这样接线；本插件是普通插件，**不要**写进 `dsh.profile.bundles`。
+> 因此本地开发插件只能这样接线。本插件**是 bundle**（`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml`），
+> 必须写进 `dsh.profile.bundles`：DSH 插件页只列 bundle，普通插件不会出现在插件页里。
+> 两处只能留一处——bundles 选中之后，profile 的 `cordis.patch.yml` 不要再 insert 同 id 行，否则双注入。
 
 新增插件/改插件代码后需**完整重启 DSH**（桌面端：托盘退出后重新打开；网页端：杀 dsh web 进程 → 弹窗点"重新启动"）。只改 `persona.txt` / `recall-data.json` 会热重载。
 
@@ -103,6 +107,7 @@ node deploy\verify-live.mjs                     # 端到端冒烟（身份锚点
 | 文件 | 职责 |
 |---|---|
 | `index.js` | 插件入口：Schemastery 配置 schema + 导出 |
+| `cordis.patch.yml` | bundle patch：插入 `persona-hazel` 行（`dsh.bundle.patch` 指向它） |
 | `plugin-core.mjs` | 插件行为：`hazel:soul` 区段 + `hazel:recall` 运行时上下文 + 热重载 |
 | `recall.mjs` | 纯召回逻辑（匹配 / 预算 / 时间渲染），不依赖 DSH，可单测 |
 | `recall-data.json` | 构建产物：scenes + 样本 + 措辞 + 行为 + 名词（不要手改） |
@@ -118,8 +123,11 @@ node deploy\verify-live.mjs                     # 端到端冒烟（身份锚点
 
 ## 卸载
 
-1. 删 `$DSH_HOME\profiles\<profile>\cordis.patch.yml` 的 `persona-hazel` insert 行
+最简单的是在 DSH 插件页里把这个 bundle 关掉/移除；手工卸载按顺序：
+
+1. 从 `$DSH_HOME\profiles\<profile>\package.json` 的 `dsh.profile.bundles` 去掉 `dsh-persona-hazel`
 2. 删同目录 `package.json` 的 `dsh-persona-hazel` link 条目
 3. 删 `node_modules\dsh-persona-hazel`（junction：`cmd /c rmdir "<profile>\node_modules\dsh-persona-hazel"`，不要用 `Remove-Item -Recurse`）
+4. 确认 `cordis.patch.yml` 里没有 `persona-hazel` 的 insert 行（旧接线遗留）
 
 改完完整重启 DSH 生效。

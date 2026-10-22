@@ -75,6 +75,57 @@ else
   fail=1
 fi
 
+# 8) bundle 元数据（DSH 插件页只列 bundle：没有 dsh.bundle.patch 的包在插件页
+#    里根本不出现，插件只能靠 profile 的 insert 行活着，用户也就关不掉它）。
+#    必须是真 insert：解析 `- insert:` 块并确认块内有一项声明了 persona-hazel，
+#    不能靠「文本里出现过 id/包名」蒙混（配置覆盖行、注释都不算）。
+if output=$(node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const pkg = JSON.parse(readFileSync("plugin/dsh-persona-hazel/package.json", "utf8"));
+const patch = "./cordis.patch.yml";
+const declared = pkg?.dsh?.bundle?.patch;
+if (declared !== patch) throw new Error(`dsh.bundle.patch must be ${patch} (got ${declared})`);
+if (!(pkg.files || []).includes(patch.replace(/^\.\//, ""))) throw new Error(`${patch} missing from package files[]`);
+const lines = readFileSync(`plugin/dsh-persona-hazel/${patch.slice(2)}`, "utf8").split(/\r?\n/);
+const indent = (line) => /^[ \t]*/.exec(line)[0].length;
+const blocks = [];
+for (let i = 0; i < lines.length; i++) {
+  const open = /^([ \t]*)- insert:[ \t]*$/.exec(lines[i]);
+  if (!open) continue;
+  const base = open[1].length;
+  let j = i + 1;
+  while (j < lines.length) {
+    if (/^[ \t]*$/.test(lines[j])) { j++; continue; }
+    if (indent(lines[j]) <= base) break;
+    j++;
+  }
+  blocks.push(lines.slice(i + 1, j));
+  i = j - 1;
+}
+if (blocks.length === 0) throw new Error(`${patch} declares no insert block`);
+const found = blocks.some((block) => {
+  for (let k = 0; k < block.length; k++) {
+    if (!/^[ \t]*- \S/.test(block[k])) continue;
+    const rowIndent = indent(block[k]);
+    let end = k + 1;
+    while (end < block.length && block[end].trim() !== "" && indent(block[end]) > rowIndent) end++;
+    const item = block.slice(k, end).join("\n");
+    if (/^[ \t]*(?:- )?id:[ \t]*persona-hazel[ \t]*$/m.test(item)) return true;
+    if (/^[ \t]*(?:- )?name:[ \t]*\S*dsh-persona-hazel\S*[ \t]*$/m.test(item)) return true;
+    k = end - 1;
+  }
+  return false;
+});
+if (!found) throw new Error(`${patch} has an insert block but none of its rows declares persona-hazel`);
+console.log("bundle metadata ok");
+' 2>&1); then
+  echo "ok: bundle metadata"
+else
+  printf '%s\n' "$output"
+  echo "FAIL: bundle metadata (the DSH Plugins page would not list dsh-persona-hazel)"
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check failed"
   exit 1

@@ -1,0 +1,9 @@
+# dsh-persona-hazel bundle patch：插入人格注入插件行。
+#
+# 选中方式：profile 的 package.json 里把 "dsh-persona-hazel" 写进
+# dsh.profile.bundles（DSH 插件页的开关就是改这一行），由本文件负责 insert。
+# 不要在 profile 的 cordis.patch.yml 里再 insert 同 id 的 persona-hazel 行：
+# 两处都 insert 会让同一个插件挂两次（双注入），人设区段也会重复。
+- insert:
+    - id: persona-hazel
+      name: 'dsh-persona-hazel'

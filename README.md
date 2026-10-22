@@ -62,9 +62,9 @@ HazePersona/
 1. **`hazel:soul`**：把 `persona.txt` 注册为系统提示词区段（全局 prompt 层，order 0）；区段名避开 `/persona/i` 过滤。
 2. **`hazel:recall`**：按本轮用户消息，从 `recall-data.json` 召回 **1–2 个情境**的真实样本/措辞/行为/名词/核心记忆/偏好，并附灰泽满所在地时间（默认 `Australia/Melbourne`）；由宿主以 user 角色运行时快照承载。宿主只在**文本与上一条快照不同**时追加新快照（`RuntimeContextProjection.project` 的 `retained.text === snapshot` 短路），所以时间粒度默认降到整点（`timeGranularity`），同一情境连续几轮只注入一次。
 
-profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.json` 重建、`package.json` 的 `link:` 依赖、`node_modules` 链接、`cordis.patch.yml` 的 `persona-hazel` insert 行。
+profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.json` 重建、`package.json` 的 `link:` 依赖、`node_modules` 链接、把 `dsh-persona-hazel` 写进 `dsh.profile.bundles`（并清掉旧接线遗留的 `cordis.patch.yml` insert 行）。
 
-**桌面端是默认目标**：DSH 桌面端用 Electron 独占管理 `profiles/desktop`——`dsh plugin --profile desktop ...` 会直接拒绝（`profile "desktop" is managed exclusively by the Electron application`），所以本地开发插件走 profile 文件接线；它是普通插件（非 bundle），只靠 insert 行加载，**不要**同时写进 `dsh.profile.bundles`。
+**桌面端是默认目标**：DSH 桌面端用 Electron 独占管理 `profiles/desktop`——`dsh plugin --profile desktop ...` 会直接拒绝（`profile "desktop" is managed exclusively by the Electron application`），所以本地开发插件走 profile 文件接线。插件包自带 `dsh.bundle.patch`（`plugin/dsh-persona-hazel/cordis.patch.yml` 里的 `persona-hazel` insert 行），由 `package.json` 的 `dsh.profile.bundles` 选中：**DSH 插件页只列 bundle**，不写进 bundles 的普通插件在插件页里根本不出现（也没法从界面开关）。选中之后 profile 的 `cordis.patch.yml` 不要再 insert 同 id 行，否则双注入。
 
 **为什么不用 dsh-soul-md 的 `soul:persona`**：router-flash 预装的 `applyPersona`（`.agent-presets\router-flash\router-core.mjs`）会过滤**所有名字匹配 `/persona/i` 的区段**并替换为 router 的 neutral persona——`soul:persona` 因此在默认会话里被清掉（实测新会话不生效）。`hazel:soul` 区段名刻意避开该过滤，**任何预设下都生效**（桌面端默认预设是 `standard`，同样适用）。
 
@@ -73,7 +73,7 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 ### 部署/更新
 
 ```powershell
-.\deploy.ps1                 # 自动探测 profile（桌面端优先）：①同步 persona.txt ②重建 recall-data.json ③link 依赖 ④node_modules 链接 ⑤patch insert 行
+.\deploy.ps1                 # 自动探测 profile（桌面端优先）：①同步 persona.txt ②重建 recall-data.json ③link 依赖 ④node_modules 链接 ⑤清掉旧 patch insert 行 ⑥写进 dsh.profile.bundles
 .\deploy.ps1 -Profile web    # 显式指定旧版 web profile
 .\deploy.ps1 -DryRun         # 只打印计划，不写文件
  .\deploy.ps1 -Verify         # 只校验接线 + recall 数据是否最新，缺一项退出码 1
@@ -90,7 +90,7 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 
 ### 验证
 
-- 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、recall-data 最新、link 依赖、node_modules 链接、patch 行五项）。
+- 接线自检：`.\deploy.ps1 -Verify`（persona.txt 同步、recall-data 最新、link 依赖、node_modules 链接、bundles 选中、无遗留 insert 行）。DSH 插件页里能看到并开关 `dsh-persona-hazel`。
 - 权威静态检查：`bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`；PowerShell 入口只转发同一脚本，需要 Git for Windows 带的 bash），含插件语法、recall 数据同步、召回单测、人设卡一致性。
 - 人格评测：`node scripts\persona-eval.mjs`（17 个场景（12 人格：身份/被夸/被戳穿/失约/越界/孤独/时间/家乡/梗/关心/干活/晚安 + 5 世界事实：三好学生/222名/乌色月/女同学/家人）；需要 DSH 在 19387 运行）。重启插件后加 `--require-context` 可验证每个会话都收到 `hazel:recall` 快照。
 - 运行时端到端（唯一入口）：`node deploy\verify-live.mjs`
@@ -119,11 +119,11 @@ profile 侧由 `deploy.ps1` 幂等维护：`persona.txt` 同步、`recall-data.j
 1. 改 `persona/soul-card.md`（或先改 `persona/` 下的源 JSON，再蒸馏进卡）。
 2. 同步与校验：
    - 权威验证：运行 `bash scripts/check.sh`（或 `powershell -NoProfile -File scripts/check.ps1`），确保三方一致。
-   - DSH 部署：`.\deploy.ps1`（桌面端 desktop profile 优先，web 兼容；link 依赖/node_modules 链接/patch 行幂等；变更自动热重载，首次安装需完整重启 DSH）。
+   - DSH 部署：`.\deploy.ps1`（桌面端 desktop profile 优先，web 兼容；link 依赖/node_modules 链接/bundles 选中幂等，并清掉旧 insert 行；变更自动热重载，首次安装需完整重启 DSH）。
    - 部署自检：`.\deploy.ps1 -Verify`；端到端复测：`node deploy\verify-live.mjs`。
    - Codex 部署：`pwsh -NoProfile -File scripts/deploy-codex.ps1 -Yes`（详见 [docs/codex-deployment.md](docs/codex-deployment.md)）。
 3. 不想全局带人设时：
-   - DSH 侧：删 patch insert 行 + node_modules 链接 + package.json link 条目（见 [plugin/dsh-persona-hazel/README.md](plugin/dsh-persona-hazel/README.md) 卸载节）。
+   - DSH 侧：从 `dsh.profile.bundles` 去掉 `dsh-persona-hazel`（或直接在 DSH 插件页关掉）+ 删 node_modules 链接 + package.json link 条目（见 [plugin/dsh-persona-hazel/README.md](plugin/dsh-persona-hazel/README.md) 卸载节）。
    - Codex 侧：按 keysmith `--uninstall` 回滚（详见 [docs/codex-deployment.md](docs/codex-deployment.md) §六）。
 
 ## 数据来源与许可
