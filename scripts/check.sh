@@ -75,6 +75,27 @@ else
   fail=1
 fi
 
+# 8) bundle 元数据（DSH 插件页只列 bundle：没有 dsh.bundle.patch 的包在插件页
+#    里根本不出现，插件只能靠 profile 的 insert 行活着，用户也就关不掉它）
+if output=$(node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const pkg = JSON.parse(readFileSync("plugin/dsh-persona-hazel/package.json", "utf8"));
+const patch = "./cordis.patch.yml";
+const declared = pkg?.dsh?.bundle?.patch;
+if (declared !== patch) throw new Error(`dsh.bundle.patch must be ${patch} (got ${declared})`);
+if (!(pkg.files || []).includes(patch.replace(/^\.\//, ""))) throw new Error(`${patch} missing from package files[]`);
+const text = readFileSync(`plugin/dsh-persona-hazel/${patch.slice(2)}`, "utf8");
+if (!/^\s*-\s*id:\s*persona-hazel\s*$/m.test(text)) throw new Error(`${patch} has no persona-hazel insert row`);
+if (!text.includes(pkg.name)) throw new Error(`${patch} does not reference ${pkg.name}`);
+console.log("bundle metadata ok");
+' 2>&1); then
+  echo "ok: bundle metadata"
+else
+  printf '%s\n' "$output"
+  echo "FAIL: bundle metadata (the DSH Plugins page would not list dsh-persona-hazel)"
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check failed"
   exit 1

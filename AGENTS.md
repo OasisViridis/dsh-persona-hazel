@@ -60,7 +60,7 @@ TheMasterplan；不运行更新检测，不修改外部工作流状态。
   ```powershell
   powershell -NoProfile -File scripts/check.ps1
   ```
-- 部署与运行环境：DSH 桌面端（Electron，默认 `~/.dsh/profiles/desktop`，`/api` 端口 19387）为主，旧版网页端 `profiles/web` 兼容；`dsh plugin --profile desktop` 被桌面端拒绝，插件走 profile 文件接线
+- 部署与运行环境：DSH 桌面端（Electron，默认 `~/.dsh/profiles/desktop`，`/api` 端口 19387）为主，旧版网页端 `profiles/web` 兼容；`dsh plugin --profile desktop` 被桌面端拒绝，插件走 profile 文件接线；插件包自带 `dsh.bundle.patch`，由 `package.json` 的 `dsh.profile.bundles` 选中（DSH 插件页只列 bundle，普通插件在插件页里不出现）
 - 合并方式：只接受人类决定的 Squash Merge
 - 部署与人格维护：见 [DSH-WORKSPACE.md](DSH-WORKSPACE.md)（DSH 挂载、deploy.ps1、人设卡修改流程、双注入禁忌）
 - Codex 人格部署：codex-keysmith 路线把 `persona/soul-card.md` 部署为 Windows Codex 全局指令（`model_instructions_file`），手册与红线见 [docs/codex-deployment.md](docs/codex-deployment.md)。**状态：2026-10-08 被 keysmith uninstall**，当前 `~/.codex/config.toml` 里没有 `model_instructions_file`；两端是否一致用 `node scripts/cross-surface-check.mjs` 查（`--strict` 时不一致退出码 1）

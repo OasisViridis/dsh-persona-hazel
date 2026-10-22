@@ -9,7 +9,12 @@
 #   2) build persona/recall + speech/behavior/world -> plugin/dsh-persona-hazel/recall-data.json
 #   3) ensure package.json  "dsh-persona-hazel": "link:<checkout>/plugin/dsh-persona-hazel"
 #   4) ensure node_modules/dsh-persona-hazel resolves to that plugin directory
-#   5) ensure one `persona-hazel` insert row in cordis.patch.yml
+#   5) drop a legacy `- id: persona-hazel` insert row from cordis.patch.yml
+#      (older wiring: the package is a bundle now, so the insert row would load
+#      the persona twice)
+#   6) select the bundle: "dsh-persona-hazel" in package.json dsh.profile.bundles —
+#      that list is what the DSH Plugins page shows and toggles; the package's own
+#      cordis.patch.yml inserts the `persona-hazel` row
 #
 # Usage:
 #   .\deploy.ps1                 # sync + wire the auto-detected profile
@@ -203,24 +208,86 @@ function Ensure-NodeModulesLink {
   return (New-StepResult $true "node_modules junction created -> $pluginDir")
 }
 
-# 5) cordis.patch.yml insert row
-function Ensure-PatchRow {
+# 5) drop the legacy cordis.patch.yml insert row
+#    The package used to be a plain plugin loaded by an insert row. It ships its
+#    own bundle patch now, so keeping that row would mount the persona twice.
+function Remove-LegacyPatchRow {
   $content = Get-Utf8Text $patchFile
-  # Match the loader entry itself: a leftover comment that merely mentions the
-  # plugin must not be mistaken for a wired insert row.
-  if ($content -match '(?m)^[ \t]*-[ \t]+id:[ \t]*persona-hazel[ \t]*$') { return (New-StepResult $true 'cordis.patch.yml insert row present') }
-  if ($DryRun -or $Verify) { return (New-StepResult $false 'cordis.patch.yml insert row MISSING') }
+  if (-not $content) { return (New-StepResult $true 'cordis.patch.yml has no legacy insert row') }
   $eol = if ($content.Contains("`r`n")) { "`r`n" } else { "`n" }
-  $block = @(
-    '# HazePersona: global persona section (hazel:soul), loaded from this checkout.',
-    '- insert:',
-    '    - id: persona-hazel',
-    "      name: 'dsh-persona-hazel'"
-  ) -join $eol
-  $base = $content.TrimEnd("`r", "`n")
-  $next = if ($base) { $base + $eol + $eol + $block + $eol } else { $block + $eol }
-  Write-Utf8NoBom $patchFile $next
-  return (New-StepResult $true 'cordis.patch.yml insert row added')
+  $lines = @($content -split "`r?`n")
+
+  $blockStart = -1
+  $blockEnd = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -notmatch '^- insert:[ \t]*$') { continue }
+    $hit = $false
+    $j = $i + 1
+    while ($j -lt $lines.Count) {
+      $line = $lines[$j]
+      if ($line -match '^[ \t]*$') { $j++; continue }
+      if ($line -notmatch '^[ \t]') { break }
+      if ($line -match '^[ \t]+- id:[ \t]*persona-hazel[ \t]*$') { $hit = $true }
+      $j++
+    }
+    if ($hit) { $blockStart = $i; $blockEnd = $j; break }
+  }
+  if ($blockStart -lt 0) { return (New-StepResult $true 'cordis.patch.yml has no legacy insert row') }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'legacy `- id: persona-hazel` insert row still in cordis.patch.yml (it double-injects now; rerun .\deploy.ps1 without -Verify)') }
+
+  # Take the comment lines that introduce the row with it, and keep the block's
+  # trailing blank lines so the next entry keeps its separator.
+  $start = $blockStart
+  while ($start -gt 0 -and $lines[$start - 1] -match '^#') { $start-- }
+  $end = $blockEnd
+  while ($end -gt $start -and $lines[$end - 1] -match '^[ \t]*$') { $end-- }
+  $kept = @()
+  if ($start -gt 0) { $kept += $lines[0..($start - 1)] }
+  if ($end -lt $lines.Count) { $kept += $lines[$end..($lines.Count - 1)] }
+  $text = ($kept -join $eol).TrimEnd("`r", "`n") + $eol
+  Write-Utf8NoBom $patchFile $text
+  return (New-StepResult $true 'legacy cordis.patch.yml insert row removed')
+}
+
+# 6) select the bundle in package.json dsh.profile.bundles
+#    The Plugins page lists exactly that ordered list; the package declares its
+#    own bundle patch, so selecting it is the whole wiring.
+function Ensure-BundleSelection {
+  $raw = Get-Utf8Text $packageJson
+  if (-not $raw) {
+    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json missing') }
+    throw ('package.json not found in ' + $profileDir + '; start the DSH client once so it creates the profile')
+  }
+  $match = [regex]::Match($raw, '"bundles"[ \t]*:[ \t]*\[(?<body>[^\]]*)\]')
+  if (-not $match.Success) {
+    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json has no dsh.profile.bundles list') }
+    throw ('cannot select the bundle automatically (no "bundles" array in ' + $packageJson + '); add "dsh-persona-hazel" to dsh.profile.bundles manually')
+  }
+  $body = $match.Groups['body'].Value
+  if ($body -match '"dsh-persona-hazel"') { return (New-StepResult $true 'dsh.profile.bundles selects dsh-persona-hazel') }
+  if ($DryRun -or $Verify) { return (New-StepResult $false 'dsh.profile.bundles does NOT select dsh-persona-hazel (the DSH Plugins page cannot show it)') }
+
+  # Keep pnpm's formatting: append after the current last element, same indent.
+  $eol = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
+  $gap = [regex]::Match($body, '[ \t]*$').Value
+  $indent = $gap + '  '
+  $items = @($body -split "`r?`n" | Where-Object { $_ -match '\S' })
+  if ($items.Count -gt 0) { $indent = ([regex]::Match($items[-1], '^[ \t]*')).Value }
+  $entry = '"dsh-persona-hazel"'
+  $core = $body.Substring(0, $body.Length - $gap.Length)
+  if ([string]::IsNullOrWhiteSpace($core)) {
+    $newBody = $eol + $indent + $entry + $eol + $gap
+  }
+  else {
+    $trimmed = $core.TrimEnd()
+    if (-not $trimmed.EndsWith(',')) { $trimmed += ',' }
+    $newBody = $trimmed + $eol + $indent + $entry + $eol + $gap
+  }
+  $bodyIndex = $match.Groups['body'].Index
+  $updated = $raw.Substring(0, $bodyIndex) + $newBody + $raw.Substring($bodyIndex + $body.Length)
+  Assert-Json $updated $packageJson
+  Write-Utf8NoBom $packageJson $updated
+  return (New-StepResult $true 'dsh.profile.bundles now selects dsh-persona-hazel')
 }
 
 # Planned steps; -Verify only reports, -DryRun only prints.
@@ -229,7 +296,8 @@ $steps = @(
   @{ Name = 'recall-data'; Run = { Sync-RecallData } },
   @{ Name = 'dependency'; Run = { Ensure-ProfileDependency } },
   @{ Name = 'link'; Run = { Ensure-NodeModulesLink } },
-  @{ Name = 'patch'; Run = { Ensure-PatchRow } }
+  @{ Name = 'legacy-patch'; Run = { Remove-LegacyPatchRow } },
+  @{ Name = 'bundle'; Run = { Ensure-BundleSelection } }
 )
 
 $problems = @()
@@ -267,3 +335,4 @@ if ($Profile -eq 'desktop') {
   Write-Host 'Next: a NEW plugin needs a dsh restart (kill the dsh web process, then click restart in the desktop dialog).'
 }
 Write-Host 'Afterwards persona.txt edits hot-reload; verify with: node deploy\verify-live.mjs'
+Write-Host "The DSH Plugins page lists this plugin as a bundle (profile package.json dsh.profile.bundles -> dsh-persona-hazel)."

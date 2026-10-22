@@ -10,6 +10,7 @@
   },
   "files": [
     "index.js",
+    "cordis.patch.yml",
     "plugin-core.mjs",
     "recall.mjs",
     "recall-data.json",
@@ -18,6 +19,11 @@
   ],
   "scripts": {
     "test": "node --test test/recall.test.mjs test/plugin.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "license": "MIT",
   "engines": {
