@@ -211,39 +211,82 @@ function Ensure-NodeModulesLink {
 # 5) drop the legacy cordis.patch.yml insert row
 #    The package used to be a plain plugin loaded by an insert row. It ships its
 #    own bundle patch now, so keeping that row would mount the persona twice.
+#    Only the matching list item and the lines it owns are removed (a block whose
+#    every item is legacy goes as a whole, so no empty `- insert:` is left): a
+#    sibling row in the same block, a legal `- id: persona-hazel` config override
+#    and surrounding comments all stay. The item is found at any indent, so a
+#    nested insert block cannot slip past -Verify either.
 function Remove-LegacyPatchRow {
   $content = Get-Utf8Text $patchFile
   if (-not $content) { return (New-StepResult $true 'cordis.patch.yml has no legacy insert row') }
   $eol = if ($content.Contains("`r`n")) { "`r`n" } else { "`n" }
   $lines = @($content -split "`r?`n")
 
-  $blockStart = -1
-  $blockEnd = -1
-  for ($i = 0; $i -lt $lines.Count; $i++) {
-    if ($lines[$i] -notmatch '^- insert:[ \t]*$') { continue }
-    $hit = $false
+  function Get-LineIndent([string]$line) { return ([regex]::Match($line, '^[ \t]*')).Value.Length }
+
+  # Every `- insert:` block, whatever its indentation: the block runs until a
+  # line dedented to the block's own column. Each item starts with `- ` and owns
+  # every deeper-indented line after it, up to the next item or a blank line.
+  $blocks = @()
+  $i = 0
+  while ($i -lt $lines.Count) {
+    $open = [regex]::Match($lines[$i], '^(?<pad>[ \t]*)- insert:[ \t]*$')
+    if (-not $open.Success) { $i++; continue }
+    $base = $open.Groups['pad'].Value.Length
     $j = $i + 1
     while ($j -lt $lines.Count) {
-      $line = $lines[$j]
-      if ($line -match '^[ \t]*$') { $j++; continue }
-      if ($line -notmatch '^[ \t]') { break }
-      if ($line -match '^[ \t]+- id:[ \t]*persona-hazel[ \t]*$') { $hit = $true }
+      if ($lines[$j] -match '^[ \t]*$') { $j++; continue }
+      if ((Get-LineIndent $lines[$j]) -le $base) { break }
       $j++
     }
-    if ($hit) { $blockStart = $i; $blockEnd = $j; break }
-  }
-  if ($blockStart -lt 0) { return (New-StepResult $true 'cordis.patch.yml has no legacy insert row') }
-  if ($DryRun -or $Verify) { return (New-StepResult $false 'legacy `- id: persona-hazel` insert row still in cordis.patch.yml (it double-injects now; rerun .\deploy.ps1 without -Verify)') }
+    $blockEnd = $j
 
-  # Take the comment lines that introduce the row with it, and keep the block's
-  # trailing blank lines so the next entry keeps its separator.
-  $start = $blockStart
-  while ($start -gt 0 -and $lines[$start - 1] -match '^#') { $start-- }
-  $end = $blockEnd
-  while ($end -gt $start -and $lines[$end - 1] -match '^[ \t]*$') { $end-- }
-  $kept = @()
-  if ($start -gt 0) { $kept += $lines[0..($start - 1)] }
-  if ($end -lt $lines.Count) { $kept += $lines[$end..($lines.Count - 1)] }
+    $items = @()
+    $k = $i + 1
+    while ($k -lt $blockEnd) {
+      if ($lines[$k] -notmatch '^(?<pad>[ \t]*)- \S') { $k++; continue }
+      $itemIndent = (Get-LineIndent $lines[$k])
+      $end = $k + 1
+      while ($end -lt $blockEnd) {
+        if ($lines[$end] -match '^[ \t]*$') { break }
+        if ((Get-LineIndent $lines[$end]) -le $itemIndent) { break }
+        $end++
+      }
+      $item = $lines[$k..($end - 1)] -join "`n"
+      $legacy = ($item -match '(?m)^[ \t]*(?:- )?id:[ \t]*persona-hazel[ \t]*$') -or
+                ($item -match '(?m)^[ \t]*(?:- )?name:[ \t]*\S*dsh-persona-hazel\S*[ \t]*$')
+      $items += ,@{ Start = $k; End = $end; Legacy = $legacy }
+      $k = $end
+    }
+    $blocks += ,@{ Start = $i; End = $blockEnd; Items = $items }
+    $i = $blockEnd
+  }
+
+  # Removing rows one by one would leave an empty `- insert:` behind, so a block
+  # whose every item is legacy goes as a whole. Blank lines stay either way.
+  $ranges = @()
+  foreach ($block in $blocks) {
+    $legacy = @($block.Items | Where-Object { $_.Legacy })
+    if ($legacy.Count -eq 0) { continue }
+    if ($legacy.Count -eq $block.Items.Count) {
+      $cut = $block.End
+      while ($cut -gt $block.Start -and $lines[$cut - 1] -match '^[ \t]*$') { $cut-- }
+      $ranges += ,@($block.Start, $cut)
+    }
+    else {
+      foreach ($item in $legacy) { $ranges += ,@($item.Start, $item.End) }
+    }
+  }
+
+  if ($ranges.Count -eq 0) { return (New-StepResult $true 'cordis.patch.yml has no legacy insert row') }
+  if ($DryRun -or $Verify) {
+    $hint = if ($DryRun) { ' (dry run: .\deploy.ps1 would remove it)' } else { ' (rerun .\deploy.ps1 to remove it)' }
+    return (New-StepResult $false ('legacy `- id: persona-hazel` insert row still in cordis.patch.yml; it would double-inject' + $hint))
+  }
+
+  $drop = New-Object 'System.Collections.Generic.HashSet[int]'
+  foreach ($range in $ranges) { for ($n = $range[0]; $n -lt $range[1]; $n++) { [void]$drop.Add($n) } }
+  $kept = @(for ($n = 0; $n -lt $lines.Count; $n++) { if (-not $drop.Contains($n)) { $lines[$n] } })
   $text = ($kept -join $eol).TrimEnd("`r", "`n") + $eol
   Write-Utf8NoBom $patchFile $text
   return (New-StepResult $true 'legacy cordis.patch.yml insert row removed')
@@ -258,34 +301,61 @@ function Ensure-BundleSelection {
     if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json missing') }
     throw ('package.json not found in ' + $profileDir + '; start the DSH client once so it creates the profile')
   }
-  $match = [regex]::Match($raw, '"bundles"[ \t]*:[ \t]*\[(?<body>[^\]]*)\]')
-  if (-not $match.Success) {
-    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json has no dsh.profile.bundles list') }
-    throw ('cannot select the bundle automatically (no "bundles" array in ' + $packageJson + '); add "dsh-persona-hazel" to dsh.profile.bundles manually')
+  $doc = $null
+  try { $doc = $raw | ConvertFrom-Json }
+  catch {
+    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json is not valid JSON') }
+    throw ('refusing to edit ' + $packageJson + ': the file is not valid JSON')
   }
-  $body = $match.Groups['body'].Value
-  if ($body -match '"dsh-persona-hazel"') { return (New-StepResult $true 'dsh.profile.bundles selects dsh-persona-hazel') }
+  $selected = @()
+  if ($doc.dsh -and $doc.dsh.profile -and $null -ne $doc.dsh.profile.bundles) { $selected = @($doc.dsh.profile.bundles) }
+  if (-not ($doc.dsh -and $doc.dsh.profile) -or $null -eq $doc.dsh.profile.bundles) {
+    if ($DryRun -or $Verify) { return (New-StepResult $false 'package.json has no dsh.profile.bundles list') }
+    throw ('cannot select the bundle automatically (no dsh.profile.bundles array in ' + $packageJson + '); add "dsh-persona-hazel" to dsh.profile.bundles manually')
+  }
+  if ($selected -contains 'dsh-persona-hazel') { return (New-StepResult $true 'dsh.profile.bundles selects dsh-persona-hazel') }
   if ($DryRun -or $Verify) { return (New-StepResult $false 'dsh.profile.bundles does NOT select dsh-persona-hazel (the DSH Plugins page cannot show it)') }
 
-  # Keep pnpm's formatting: append after the current last element, same indent.
-  $eol = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
-  $gap = [regex]::Match($body, '[ \t]*$').Value
-  $indent = $gap + '  '
-  $items = @($body -split "`r?`n" | Where-Object { $_ -match '\S' })
-  if ($items.Count -gt 0) { $indent = ([regex]::Match($items[-1], '^[ \t]*')).Value }
+  # Anchor the surgical edit on dsh.profile: an unrelated "bundles" key elsewhere
+  # in package.json must not receive the new element.
+  $match = [regex]::Match($raw, '(?s)"dsh"[ \t]*:[ \t]*\{.*?"profile"[ \t]*:[ \t]*\{.*?"bundles"[ \t]*:[ \t]*\[(?<body>[^\]]*)\]')
+  if (-not $match.Success) {
+    throw ('cannot locate dsh.profile.bundles textually in ' + $packageJson + '; add "dsh-persona-hazel" to dsh.profile.bundles manually')
+  }
+  $body = $match.Groups['body'].Value
   $entry = '"dsh-persona-hazel"'
-  $core = $body.Substring(0, $body.Length - $gap.Length)
-  if ([string]::IsNullOrWhiteSpace($core)) {
-    $newBody = $eol + $indent + $entry + $eol + $gap
+  if ($body.Contains("`n")) {
+    # Keep pnpm's formatting: append after the current last element, same indent.
+    $eol = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $gap = [regex]::Match($body, '[ \t]*$').Value
+    $indent = $gap + '  '
+    $items = @($body -split "`r?`n" | Where-Object { $_ -match '\S' })
+    if ($items.Count -gt 0) { $indent = ([regex]::Match($items[-1], '^[ \t]*')).Value }
+    $core = $body.Substring(0, $body.Length - $gap.Length)
+    if ([string]::IsNullOrWhiteSpace($core)) {
+      $newBody = $eol + $indent + $entry + $eol + $gap
+    }
+    else {
+      $trimmed = $core.TrimEnd()
+      if (-not $trimmed.EndsWith(',')) { $trimmed += ',' }
+      $newBody = $trimmed + $eol + $indent + $entry + $eol + $gap
+    }
   }
   else {
-    $trimmed = $core.TrimEnd()
-    if (-not $trimmed.EndsWith(',')) { $trimmed += ',' }
-    $newBody = $trimmed + $eol + $indent + $entry + $eol + $gap
+    # Inline array: stay on one line.
+    $gap = [regex]::Match($body, '[ \t]*$').Value
+    $trimmed = $body.Substring(0, $body.Length - $gap.Length).TrimEnd()
+    if ($trimmed.Length -gt 0 -and -not $trimmed.EndsWith(',')) { $trimmed += ',' }
+    $sep = if ($trimmed.Length -gt 0) { ' ' } else { '' }
+    $newBody = $trimmed + $sep + $entry + $gap
   }
   $bodyIndex = $match.Groups['body'].Index
   $updated = $raw.Substring(0, $bodyIndex) + $newBody + $raw.Substring($bodyIndex + $body.Length)
   Assert-Json $updated $packageJson
+  $verified = $updated | ConvertFrom-Json
+  if (-not (@($verified.dsh.profile.bundles) -contains 'dsh-persona-hazel')) {
+    throw ('refusing to write ' + $packageJson + ': the edit did not land in dsh.profile.bundles, file left untouched')
+  }
   Write-Utf8NoBom $packageJson $updated
   return (New-StepResult $true 'dsh.profile.bundles now selects dsh-persona-hazel')
 }
