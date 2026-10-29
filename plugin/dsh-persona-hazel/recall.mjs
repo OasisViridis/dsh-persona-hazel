@@ -245,6 +245,30 @@ function clockText(hourText, minuteText, hour, granularity) {
   return hour === 0 ? `${period}零点` : `${period} ${hour} 点`;
 }
 
+/** 取某时区在某一刻的日期/钟点部件；非法时区回落到宿主设备时区。 */
+function zoneParts(now, timeZone) {
+  const format = (zone) =>
+    new Intl.DateTimeFormat('zh-CN', {
+      timeZone: zone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      weekday: 'short',
+    });
+  let formatter;
+  try {
+    formatter = format(timeZone);
+    formatter.format(now);
+  } catch {
+    formatter = format(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }
+  const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
+  return { ...parts, monthNumber: Number(parts.month), hourNumber: Number(parts.hour) };
+}
+
 /**
  * 渲染灰泽满所在地的本地时间/季节。
  * @param {Date} now
@@ -254,47 +278,35 @@ function clockText(hourText, minuteText, hour, granularity) {
 export function renderTime(now = new Date(), timeZone = 'Australia/Melbourne', options = {}) {
   const southern = options.southernHemisphere !== false;
   const granularity = normalizeGranularity(options.granularity);
-  let resolvedZone = timeZone;
-  let formatter;
-  try {
-    formatter = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: resolvedZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    });
-    formatter.format(now);
-  } catch {
-    resolvedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    formatter = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: resolvedZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    });
-  }
-  const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
-  const month = Number(parts.month);
-  const hour = Number(parts.hour);
-  const seasonIndex = Math.max(0, Math.min(11, month - 1));
+  const parts = zoneParts(now, timeZone);
+  const seasonIndex = Math.max(0, Math.min(11, parts.monthNumber - 1));
   const season = `${southern ? '南半球' : '北半球'}${(southern ? SEASONS_SOUTH : SEASONS_NORTH)[seasonIndex]}`;
-  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${clockText(parts.hour, parts.minute, hour, granularity)}，${season}。`;
+  return `灰泽满所在地（虚拟澳洲）当地：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${clockText(parts.hour, parts.minute, parts.hourNumber, granularity)}，${season}。`;
 }
 
-/** 组装要写进 systemPrompt.context 的完整文本（时间 + 召回）。 */
+/**
+ * 渲染任务日期基准（宿主设备时区）的本地时间；只给日期与钟点，不带季节。
+ * @param {Date} now
+ * @param {string} [userTimeZone] 缺省取宿主设备时区。
+ * @param {{granularity?: 'minute'|'hour'|'period'}} options
+ */
+export function renderUserTime(now = new Date(), userTimeZone, options = {}) {
+  const granularity = normalizeGranularity(options.granularity);
+  const parts = zoneParts(now, userTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+  return `任务日期基准（宿主设备时区）：${parts.year}-${parts.month}-${parts.day} ${parts.weekday} ${clockText(parts.hour, parts.minute, parts.hourNumber, granularity)}。`;
+}
+
+/** 日期锚点：相对日期、排期、提醒与截止日期按任务日期基准；她的当地日期只用于她的作息与当地情况。 */
+export const DATE_ANCHOR_RULE =
+  '日期锚点：相对日期、排期、提醒与截止日期按任务日期基准算；她那边的时间只用于她的作息与当地情况。';
+
+/** 组装要写进 systemPrompt.context 的完整文本（两套时钟 + 召回）。 */
 export function buildContextText({
   message,
   data,
   now,
   timeZone,
+  userTimeZone,
   recall = true,
   timeContext = true,
   budget,
@@ -303,7 +315,16 @@ export function buildContextText({
   granularity = 'hour',
 } = {}) {
   const parts = [];
-  if (timeContext) parts.push(renderTime(now, timeZone, { southernHemisphere, granularity }));
+  if (timeContext) {
+    const at = now ?? new Date();
+    parts.push(
+      [
+        renderUserTime(at, userTimeZone, { granularity }),
+        renderTime(at, timeZone, { southernHemisphere, granularity }),
+        DATE_ANCHOR_RULE,
+      ].join('\n'),
+    );
+  }
   if (recall && data) {
     const text = renderRecall(message, data, { budget, maxScenes });
     if (text) parts.push(text);

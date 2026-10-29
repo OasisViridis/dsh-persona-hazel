@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildContextText, renderRecall, renderTime, selectRecall, similarity } from '../recall.mjs';
+import { buildContextText, DATE_ANCHOR_RULE, renderRecall, renderTime, renderUserTime, selectRecall, similarity } from '../recall.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA = JSON.parse(readFileSync(join(HERE, '..', 'recall-data.json'), 'utf8'));
@@ -179,6 +179,86 @@ test('southernHemisphere=false 时使用北半球季节', () => {
   const july = new Date('2026-07-15T00:00:00Z');
   assert.match(renderTime(july, 'Australia/Melbourne'), /南半球冬季/);
   assert.match(renderTime(july, 'Asia/Shanghai', { southernHemisphere: false }), /北半球夏季/);
+});
+
+test('跨日注入：她那边已次日，用户那边仍是当日', () => {
+  const now = new Date('2026-10-29T15:35:00Z'); // 用户 23:35，墨尔本 10-30 02:35
+  const text = buildContextText({
+    message: '',
+    data: null,
+    now,
+    timeZone: 'Australia/Melbourne',
+    userTimeZone: 'Asia/Shanghai',
+  });
+  assert.ok(text.startsWith('任务日期基准（宿主设备时区）：2026-10-29 周四 深夜 23 点。'));
+  assert.match(text, /灰泽满所在地（虚拟澳洲）当地：2026-10-30 周五 凌晨 2 点，南半球春季。/);
+  assert.ok(text.includes(DATE_ANCHOR_RULE));
+});
+
+test('用户 00:xx 时她那边已是同日凌晨，两行日期一致', () => {
+  const now = new Date('2026-10-29T16:08:00Z'); // 用户 10-30 00:08，墨尔本 10-30 03:08
+  const text = buildContextText({
+    message: '',
+    data: null,
+    now,
+    timeZone: 'Australia/Melbourne',
+    userTimeZone: 'Asia/Shanghai',
+  });
+  assert.ok(text.startsWith('任务日期基准（宿主设备时区）：2026-10-30 周五 凌晨零点。'));
+  assert.match(text, /灰泽满所在地（虚拟澳洲）当地：2026-10-30 周五 凌晨 3 点/);
+});
+
+test('两边同日时也固定三行，不合并成一行', () => {
+  const now = new Date('2026-10-30T02:00:00Z'); // 用户 10:00，墨尔本 13:00，同为 10-30
+  const text = buildContextText({
+    message: '',
+    data: null,
+    now,
+    timeZone: 'Australia/Melbourne',
+    userTimeZone: 'Asia/Shanghai',
+  });
+  const lines = text.split('\n');
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /^任务日期基准（宿主设备时区）：2026-10-30/);
+  assert.match(lines[1], /^灰泽满所在地（虚拟澳洲）当地：2026-10-30/);
+  assert.equal(lines[2], DATE_ANCHOR_RULE);
+});
+
+test('墨尔本夏令时开始与结束时日期/钟点不重复偏移', () => {
+  const start = buildContextText({
+    message: '',
+    data: null,
+    now: new Date('2026-10-03T16:30:00Z'),
+    timeZone: 'Australia/Melbourne',
+    userTimeZone: 'Asia/Shanghai',
+  });
+  assert.match(start, /灰泽满所在地（虚拟澳洲）当地：2026-10-04 周日 凌晨 3 点/);
+  const end = buildContextText({
+    message: '',
+    data: null,
+    now: new Date('2027-04-03T16:30:00Z'),
+    timeZone: 'Australia/Melbourne',
+    userTimeZone: 'Asia/Shanghai',
+  });
+  assert.match(end, /灰泽满所在地（虚拟澳洲）当地：2027-04-04 周日 凌晨 2 点/);
+  assert.doesNotMatch(end, /凌晨 3 点/);
+});
+
+test('同一整点窗口内两套时钟文本稳定，跨整点才变', () => {
+  const build = (iso) =>
+    buildContextText({
+      message: '',
+      data: null,
+      now: new Date(iso),
+      timeZone: 'Australia/Melbourne',
+      userTimeZone: 'Asia/Shanghai',
+    });
+  assert.equal(build('2026-10-29T15:05:00Z'), build('2026-10-29T15:55:00Z'));
+  assert.notEqual(build('2026-10-29T15:55:00Z'), build('2026-10-29T16:05:00Z'));
+});
+
+test('用户时区非法时回落系统时区，不抛错', () => {
+  assert.doesNotThrow(() => renderUserTime(new Date(), 'Not/AZone'));
 });
 
 test('buildContextText 同时包含时间与召回', () => {

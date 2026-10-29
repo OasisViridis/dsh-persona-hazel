@@ -9,8 +9,9 @@
 |---|---|
 | [codex-deployment.md](codex-deployment.md) | 用 codex-keysmith 把 `persona/soul-card.md` 部署成 Windows Codex 全局指令：机制、回滚、沙箱实测、红线 |
 | [handoff-codex-deploy-20260821.md](handoff-codex-deploy-20260821.md) | 上面那次部署的任务书与验收记录（历史存档） |
-| [persona-research-2026-10.md](persona-research-2026-10.md) | 人格蒸馏生态调研：素材、转写、TTS、同类项目、评测；§6 是插件 A–H 方案的落地状态 |
+| [persona-research-2026-10.md](persona-research-2026-10.md) | 人格蒸馏生态调研：素材、转写、TTS、同类项目、评测；§6 是插件 A–I 方案的落地状态 |
 | [persona-slimming-proposal.md](persona-slimming-proposal.md) | E 方案：人设卡分层瘦身的候选核与验收记录 |
+| [adr/0001-two-clock-date-anchor.md](adr/0001-two-clock-date-anchor.md) | I 方案：双时钟日期锚点，相对日期与排期按宿主时间，她的当地日期只用于她自己的作息 |
 | [voice-prototype.md](voice-prototype.md) | F 方案：本地 F5-TTS 零样本链路验证（不是她的音色） |
 | [voice-training-data.md](voice-training-data.md) | F 方案配套：THCHS-30 训练音频的获取与清单（Apache-2.0，通用普通话） |
 
