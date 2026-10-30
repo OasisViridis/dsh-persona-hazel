@@ -102,6 +102,8 @@ test('没有用户消息时只注入时间，不强行召回', () => {
   apply(ctx, CONFIG);
   const text = state.context.text({});
   assert.match(text, /灰泽满所在地/);
+  assert.match(text, /任务日期基准（宿主设备时区）：/);
+  assert.match(text, /日期锚点：/);
   assert.doesNotMatch(text, /记忆召回/);
 });
 
